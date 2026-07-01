@@ -23,7 +23,7 @@ This file is the living progress log — keep it updated as work lands.
 | 2a | 3 surfaces (aileron/elevator/rudder), real 3D up/down tilt | ✅ done |
 | 3 | Live binding to `SERVO_OUTPUT_RAW` + VTOL mode (no C++) | ✅ done |
 | – | Fake-signal generator `custom/tools/fake_mavlink.py` | ✅ done, verified |
-| 4 | Real QGC build (Qt 6.10) + run with fake signal | 🚧 in progress |
+| 4 | Real QGC build (Qt 6.10) + run with fake signal | ✅ builds & runs; connects to fake vehicle |
 | 5 | RTSP recognition-video panel | ⬜ todo |
 | 6 | Waypoint coordinate-entry panel (type coords + count) | ⬜ todo |
 | 7 | MAVLink custom messages for recognition/gripper | ⬜ todo |
@@ -59,6 +59,21 @@ python3 tools/setup/install_qt.py              # fetch Qt 6.10 (several GB)
 # configure + build (custom/ is auto-detected); then run, and in another shell:
 python3 custom/tools/fake_mavlink.py           # fake PX4 VTOL → QGC UDP 14550
 ```
+
+Actual working build (Ubuntu 22.04, system Python 3.10):
+
+```bash
+pip install --user cmake tomli                 # cmake ≥3.25 + tomli for py3.10
+python3 tools/setup/install_qt.py install --version 6.10.3 --host linux \
+  --target desktop --arch linux_gcc_64 \
+  --modules "qtgraphs qtlocation qtpositioning qtspeech qtmultimedia qtserialport qtimageformats qtshadertools qtconnectivity qtquick3d qtsensors qtscxml qtwebsockets qthttpserver"
+~/.local/bin/cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$PWD/.qt/6.10.3/gcc_64" -DQGC_BUILD_TESTING=OFF -DQGC_BUILD_INSTALLER=OFF
+~/.local/bin/cmake --build build -j"$(nproc)"  # -> build/Release/VTOL-GCS
+```
+
+Run app + fake telemetry together: `bash ~/falcon_run.sh`
+(sets `QT_QPA_PLATFORM=xcb`, starts fake_mavlink, launches `build/Release/VTOL-GCS`).
 
 ## Git remotes
 
