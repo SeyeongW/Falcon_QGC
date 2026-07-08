@@ -258,8 +258,13 @@ Item {
         color:                  qgcPal.window
         opacity:                0.92
 
-        // --- Source: live SERVO_OUTPUT_RAW when a vehicle is connected,
-        //     otherwise an animated mock so the panel is alive in the editor. ---
+        // --- Live actuator source, priority: MAVROS RCOut (real aircraft
+        //     behavior) > MAVLink SERVO_OUTPUT_RAW > nothing (static/neutral).
+        //     No mock animation: with no data the aircraft stays still. ---
+        property var  _rosSource: rosActuatorLoader.item
+        property bool _haveRos:   _rosSource ? _rosSource.have : false
+        property var  _rosChan:   (_rosSource && _rosSource.channels) ? _rosSource.channels : []
+
         property var  _servo:     []      // latest SERVO_OUTPUT_RAW (ch1..16, us)
         property bool _haveServo: _servo.length >= 8 && _servo[0] > 0
 
@@ -269,26 +274,20 @@ Item {
             function onServoOutputsChanged(servoValues) { controlSurfacePanel._servo = servoValues }
         }
 
-        // Channel -> normalized helpers (matches custom/tools/fake_mavlink.py):
-        // ch1 aileron, ch2 elevator, ch3 pusher, ch4 rudder, ch5-8 lift motors.
-        function _surf(ch) { return _haveServo && _servo[ch] > 0 ? (_servo[ch] - 1500) / 500  : 0 }
-        function _mot(ch)  { return _haveServo && _servo[ch] > 0 ? (_servo[ch] - 1000) / 1000 : 0 }
+        // Unified channel array ([0] = ch1); prefer MAVROS when it is live.
+        property bool _haveLive: _haveRos || _haveServo
+        property var  _chan:     _haveRos ? _rosChan : _servo
 
-        // Mock driver, used only when there is no live servo telemetry.
-        property real _t: 0
-        NumberAnimation on _t {
-            from: 0; to: Math.PI * 2; duration: 4000
-            loops: Animation.Infinite; running: !controlSurfacePanel._haveServo
-        }
-        property bool _demoFwd: true
-        Timer {
-            interval: 6000; running: !controlSurfacePanel._haveServo; repeat: true
-            onTriggered: controlSurfacePanel._demoFwd = !controlSurfacePanel._demoFwd
-        }
-        // Mode: real VTOL state if connected, otherwise the demo toggle.
+        // Channel -> normalized helpers (matches custom/tools/fake_mavlink.py and
+        // the RCOut channel order): ch1 aileron, ch2 elevator, ch3 pusher,
+        // ch4 rudder, ch5-8 lift motors. Returns 0 (neutral) when no live data.
+        function _surf(ch) { return _haveLive && _chan[ch] > 0 ? (_chan[ch] - 1500) / 500  : 0 }
+        function _mot(ch)  { return _haveLive && _chan[ch] > 0 ? (_chan[ch] - 1000) / 1000 : 0 }
+
+        // Mode: real VTOL state when connected, otherwise hover (no fake toggle).
         property bool _fwdMode: (_activeVehicle && _activeVehicle.vtol)
                                 ? _activeVehicle.vtolInFwdFlight
-                                : _demoFwd
+                                : false
 
         QGCLabel {
             id:                         controlSurfaceTitle
@@ -309,16 +308,43 @@ Item {
 
             fixedWingMode:      controlSurfacePanel._fwdMode
 
-            aileronLeftDeflection:  controlSurfacePanel._haveServo ?  controlSurfacePanel._surf(0) :  Math.sin(controlSurfacePanel._t)
-            aileronRightDeflection: controlSurfacePanel._haveServo ? -controlSurfacePanel._surf(0) : -Math.sin(controlSurfacePanel._t)
-            elevatorDeflection:     controlSurfacePanel._haveServo ?  controlSurfacePanel._surf(1) :  Math.sin(controlSurfacePanel._t * 0.7)
-            rudderDeflection:       controlSurfacePanel._haveServo ?  controlSurfacePanel._surf(3) :  Math.sin(controlSurfacePanel._t * 0.5)
+            // Real actuator values; helpers return 0 (neutral) when no live data.
+            aileronLeftDeflection:   controlSurfacePanel._surf(0)
+            aileronRightDeflection: -controlSurfacePanel._surf(0)
+            elevatorDeflection:      controlSurfacePanel._surf(1)
+            rudderDeflection:        controlSurfacePanel._surf(3)
 
-            liftThrottleFL: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(4) : 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2)
-            liftThrottleFR: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(5) : 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2 + 1)
-            liftThrottleRL: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(6) : 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2 + 2)
-            liftThrottleRR: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(7) : 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2 + 3)
-            pusherThrottle: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(2) : 0.6
+            liftThrottleFL: controlSurfacePanel._mot(4)
+            liftThrottleFR: controlSurfacePanel._mot(5)
+            liftThrottleRL: controlSurfacePanel._mot(6)
+            liftThrottleRR: controlSurfacePanel._mot(7)
+            pusherThrottle: controlSurfacePanel._mot(2)
         }
+    }
+
+    //-------------------------------------------------------------------------
+    //-- MAVROS actuator (RCOut) source for the control-surface widget.
+    //   Non-visual; gated like the video panel so non-ROS builds don't import
+    //   Custom.Ros. When inactive the widget falls back to MAVLink servo / static.
+    Loader {
+        id:     rosActuatorLoader
+        active: (typeof customRosEnabled !== 'undefined') && customRosEnabled
+        source: active ? "qrc:/qml/Custom/Widgets/RosActuatorSource.qml" : ""
+    }
+
+    //-------------------------------------------------------------------------
+    //-- Recognition video panel (VTOL-GCS, ROS build only)
+    //   Loaded by URL and gated on `customRosEnabled` (set from CustomPlugin)
+    //   so non-ROS builds never try to import Custom.Ros.
+    Loader {
+        id:                     rosVideoLoader
+        active:                 (typeof customRosEnabled !== 'undefined') && customRosEnabled
+        source:                 active ? "qrc:/qml/Custom/Widgets/RosVideoPanel.qml" : ""
+        anchors.left:           parent.left
+        anchors.bottom:         parent.bottom
+        anchors.leftMargin:     _toolsMargin
+        anchors.bottomMargin:   _toolsMargin + parentToolInsets.bottomEdgeLeftInset
+        width:                  ScreenTools.defaultFontPixelWidth * 34
+        height:                 ScreenTools.defaultFontPixelHeight * 15
     }
 }

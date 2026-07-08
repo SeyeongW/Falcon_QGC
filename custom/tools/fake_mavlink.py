@@ -67,6 +67,67 @@ def motor_pwm(throttle):
     return int(1000 + clamp(throttle, 0, 1) * 1000)
 
 
+# Minimal PX4-ish parameter set. QGC downloads the full list on connect; without
+# a response it warns "vehicle did not respond to request for parameters" and
+# limits the UI. Serving a self-consistent set (advertised count == count sent)
+# clears that. Values are plausible but not a real airframe. [name, value, type]
+INT = mav.MAV_PARAM_TYPE_INT32
+REAL = mav.MAV_PARAM_TYPE_REAL32
+PARAMS = [
+    ["SYS_AUTOSTART", 4001, INT],
+    ["SYS_MC_EST_GROUP", 2, INT],
+    ["MAV_TYPE", 22, INT],
+    ["MAV_SYS_ID", 1, INT],
+    ["MAV_COMP_ID", 1, INT],
+    ["BAT1_N_CELLS", 4, INT],
+    ["COM_RC_IN_MODE", 1, INT],
+    ["NAV_RCL_ACT", 2, INT],
+    ["NAV_DLL_ACT", 0, INT],
+    ["COM_FLTMODE1", 0, INT],
+    ["CBRK_SUPPLY_CHK", 0, INT],
+    ["EKF2_AID_MASK", 1, INT],
+    ["MPC_XY_VEL_MAX", 12.0, REAL],
+    ["MIS_TAKEOFF_ALT", 60.0, REAL],
+]
+_PARAM_INDEX = {name: i for i, (name, _, _) in enumerate(PARAMS)}
+
+
+def _param_name(raw):
+    """PARAM_* param_id may arrive as str or NUL-padded bytes."""
+    if isinstance(raw, bytes):
+        raw = raw.decode("ascii", "ignore")
+    return raw.rstrip("\x00")
+
+
+def send_param(conn, i):
+    name, value, ptype = PARAMS[i]
+    conn.mav.param_value_send(name.encode("ascii"), float(value), ptype, len(PARAMS), i)
+
+
+def handle_incoming(conn):
+    """Answer parameter requests so QGC can complete its param download."""
+    msg = conn.recv_match(blocking=False)
+    while msg is not None:
+        mtype = msg.get_type()
+        if mtype == "PARAM_REQUEST_LIST":
+            for i in range(len(PARAMS)):
+                send_param(conn, i)
+        elif mtype == "PARAM_REQUEST_READ":
+            idx = msg.param_index
+            if 0 <= idx < len(PARAMS):
+                send_param(conn, idx)
+            else:
+                i = _PARAM_INDEX.get(_param_name(msg.param_id))
+                if i is not None:
+                    send_param(conn, i)
+        elif mtype == "PARAM_SET":
+            i = _PARAM_INDEX.get(_param_name(msg.param_id))
+            if i is not None:
+                PARAMS[i][1] = msg.param_value
+                send_param(conn, i)
+        msg = conn.recv_match(blocking=False)
+
+
 def main():
     args = parse_args()
     host, port = args.target.split(":")
@@ -96,6 +157,9 @@ def main():
         now = time.time()
         dt = 0.02
         t_ms = int((now - boot) * 1000)
+
+        # Respond to parameter (and other) requests from QGC.
+        handle_incoming(conn)
 
         # --- advance along the mission ---
         prog = (prog + args.speed * dt) % 1.0

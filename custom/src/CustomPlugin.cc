@@ -6,6 +6,12 @@
 #include "QGCPalette.h"
 #include "QGCMAVLink.h"
 #include "AppSettings.h"
+#include "CustomGeoclueSource.h"
+#ifdef QGC_ENABLE_ROS
+#include "RosBridge.h"
+#include "RosVideoView.h"
+#include <QtQml/QQmlContext>
+#endif
 
 #include <QtCore/QApplicationStatic>
 #include <QtQml/QQmlApplicationEngine>
@@ -132,9 +138,9 @@ void CustomPlugin::paletteOverride(const QString &colorName, QGCPalette::Palette
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#9d9d9d");
     } else if (colorName == QStringLiteral("buttonHighlight")) {
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#07916d");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#1d4ed8");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#495057");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#aeebd0");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#b6cbf5");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#e4e4e4");
     } else if (colorName == QStringLiteral("buttonHighlightText")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#ffffff");
@@ -142,9 +148,9 @@ void CustomPlugin::paletteOverride(const QString &colorName, QGCPalette::Palette
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#2c2c2c");
     } else if (colorName == QStringLiteral("primaryButton")) {
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#12b886");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#1d4ed8");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#495057");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#aeebd0");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#b6cbf5");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
     } else if (colorName == QStringLiteral("primaryButtonText")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#ffffff");
@@ -167,19 +173,19 @@ void CustomPlugin::paletteOverride(const QString &colorName, QGCPalette::Palette
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
     } else if (colorName == QStringLiteral("mapButtonHighlight")) {
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#07916d");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#1d4ed8");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#585858");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#be781c");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#1d4ed8");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
     } else if (colorName == QStringLiteral("mapIndicator")) {
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#9dda4f");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#3b82f6");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#585858");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#be781c");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#1d4ed8");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
     } else if (colorName == QStringLiteral("mapIndicatorChild")) {
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#527942");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#274a86");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#585858");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#766043");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#274a86");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
     } else if (colorName == QStringLiteral("colorGreen")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#27bf89");
@@ -227,9 +233,9 @@ void CustomPlugin::paletteOverride(const QString &colorName, QGCPalette::Palette
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#ffffff");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
     } else if (colorName == QStringLiteral("hoverColor")) {
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#07916d");
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#33c494");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#aeebd0");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#1d4ed8");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#4d7fe0");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#b6cbf5");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#464f5a");
     } else if (colorName == QStringLiteral("mapWidgetBorderLight")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#ffffff");
@@ -242,16 +248,22 @@ void CustomPlugin::paletteOverride(const QString &colorName, QGCPalette::Palette
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#000000");
     } else if (colorName == QStringLiteral("brandingPurple")) {
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#4a2c6d");
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#4a2c6d");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#4a2c6d");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#4a2c6d");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#14297a");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#14297a");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#14297a");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#14297a");
     } else if (colorName == QStringLiteral("brandingBlue")) {
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#6045c5");
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#48d6ff");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#6045c5");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#48d6ff");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#1d4ed8");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#4d9bff");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#1d4ed8");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#4d9bff");
     }
+}
+
+QGeoPositionInfoSource* CustomPlugin::createPositionSource(QObject* parent)
+{
+    // Coarse "laptop GPS" via geoclue, made acceptable to QGC's accuracy gate.
+    return new CustomGeoclueSource(parent);
 }
 
 QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
@@ -263,6 +275,17 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
 
     _selector = new CustomOverrideInterceptor();
     _qmlEngine->addUrlInterceptor(_selector);
+
+    // VTOL-GCS: gate ROS-only QML (video panel) so non-ROS builds don't try to
+    // import Custom.Ros. Always defined; true only when the bridge is compiled in.
+#ifdef QGC_ENABLE_ROS
+    _qmlEngine->rootContext()->setContextProperty("customRosEnabled", true);
+    // Expose the ROS2 bridge singleton and the video item (import Custom.Ros).
+    qmlRegisterSingletonInstance("Custom.Ros", 1, 0, "RosBridge", RosBridge::instance());
+    qmlRegisterType<RosVideoView>("Custom.Ros", 1, 0, "RosVideoView");
+#else
+    _qmlEngine->rootContext()->setContextProperty("customRosEnabled", false);
+#endif
 
     return _qmlEngine;
 }
