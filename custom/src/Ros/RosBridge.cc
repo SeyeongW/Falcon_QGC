@@ -1,6 +1,9 @@
 #include "RosBridge.h"
 
 #include <QtCore/QDateTime>
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
 #include <QtCore/QLoggingCategory>
 
 Q_LOGGING_CATEGORY(RosBridgeLog, "Custom.RosBridge")
@@ -9,6 +12,9 @@ namespace {
 constexpr const char *kNodeName = "vtol_gcs";
 constexpr const char *kImageType = "sensor_msgs/msg/Image";
 constexpr qint64 kActuatorStaleMs = 1500;   ///< no RCOut for this long -> go static
+constexpr qint64 kPhaseStaleMs = 3000;      ///< no command/status for this long -> link down
+constexpr const char *kRunPhaseTopic = "command/run_phase";
+constexpr const char *kStatusTopic = "command/status";
 }
 
 RosBridge::RosBridge(QObject *parent)
@@ -40,6 +46,13 @@ RosBridge::RosBridge(QObject *parent)
     refreshTopics();
     setActuatorTopic(_actuatorTopic);   // subscribe to the default MAVROS RCOut topic
 
+    // Mission phase orchestrator: publish run requests, subscribe to live status.
+    // Reliable QoS (default) matches the orchestrator's std_msgs publishers.
+    _runPhasePub = _node->create_publisher<std_msgs::msg::Int32>(kRunPhaseTopic, 10);
+    _phaseStatusSub = _node->create_subscription<std_msgs::msg::String>(
+        kStatusTopic, 10,
+        [this](const std_msgs::msg::String::ConstSharedPtr &msg) { _onPhaseStatus(msg); });
+
     qCDebug(RosBridgeLog) << "RosBridge up, node" << kNodeName;
 }
 
@@ -50,6 +63,8 @@ RosBridge::~RosBridge()
     _discoveryTimer.stop();
     _imageSub.reset();
     _actuatorSub.reset();
+    _phaseStatusSub.reset();
+    _runPhasePub.reset();
     _node.reset();
     if (_ownsContext && rclcpp::ok()) {
         rclcpp::shutdown();
@@ -85,6 +100,13 @@ void RosBridge::_updateFps()
     if (_haveActuator && (QDateTime::currentMSecsSinceEpoch() - _lastActuatorMs) > kActuatorStaleMs) {
         _haveActuator = false;
         emit servoChannelsChanged();
+    }
+
+    // Mark the orchestrator link down if command/status has gone quiet (the
+    // orchestrator republishes at ~2 Hz, so 3 s of silence means it's gone).
+    if (_phaseLinkOk && (QDateTime::currentMSecsSinceEpoch() - _lastPhaseMs) > kPhaseStaleMs) {
+        _phaseLinkOk = false;
+        emit phaseStatusChanged();
     }
 }
 
@@ -180,6 +202,62 @@ void RosBridge::_onActuator(const mavros_msgs::msg::RCOut::ConstSharedPtr &msg)
     _lastActuatorMs = QDateTime::currentMSecsSinceEpoch();
     _haveActuator = !channels.isEmpty();
     emit servoChannelsChanged();
+}
+
+void RosBridge::runPhase(int n)
+{
+    if (!_runPhasePub) {
+        qCWarning(RosBridgeLog) << "runPhase" << n << "ignored: no publisher";
+        return;
+    }
+    std_msgs::msg::Int32 msg;
+    msg.data = n;
+    _runPhasePub->publish(msg);
+    qCDebug(RosBridgeLog) << "runPhase" << n << "published";
+}
+
+void RosBridge::retryPhaseLink()
+{
+    if (!_node) {
+        return;
+    }
+    // Drop and re-create the subscription so DDS re-discovers the orchestrator
+    // (e.g. it was started after QGC). Reflect the reset immediately in the UI.
+    _phaseStatusSub.reset();
+    _phaseStatusSub = _node->create_subscription<std_msgs::msg::String>(
+        kStatusTopic, 10,
+        [this](const std_msgs::msg::String::ConstSharedPtr &msg) { _onPhaseStatus(msg); });
+
+    if (_phaseLinkOk) {
+        _phaseLinkOk = false;
+        emit phaseStatusChanged();
+    }
+    qCDebug(RosBridgeLog) << "phase link retry: re-subscribed to" << kStatusTopic;
+}
+
+void RosBridge::_onPhaseStatus(const std_msgs::msg::String::ConstSharedPtr &msg)
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(msg->data));
+    if (!doc.isObject()) {
+        qCWarning(RosBridgeLog) << "bad command/status payload" << QString::fromStdString(msg->data);
+        return;
+    }
+    const QJsonObject obj = doc.object();
+
+    _phase = obj.value(QStringLiteral("phase")).toInt(-1);
+    _phaseState = obj.value(QStringLiteral("state")).toString(QStringLiteral("idle"));
+    _phaseMsg = obj.value(QStringLiteral("msg")).toString();
+    _phaseProgress = obj.value(QStringLiteral("progress")).toDouble(-1.0);
+
+    QVariantList done;
+    for (const QJsonValue &v : obj.value(QStringLiteral("done")).toArray()) {
+        done.append(v.toInt());
+    }
+    _phaseDone = done;
+
+    _lastPhaseMs = QDateTime::currentMSecsSinceEpoch();
+    _phaseLinkOk = true;
+    emit phaseStatusChanged();
 }
 
 QImage RosBridge::toQImage(const sensor_msgs::msg::Image &msg)

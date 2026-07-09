@@ -40,7 +40,11 @@ Rectangle {
                 Layout.fillWidth: true
                 model: RosBridge.imageTopics
                 currentIndex: RosBridge.imageTopics.indexOf(RosBridge.imageTopic)
-                alternateText: RosBridge.imageTopics.length === 0 ? qsTr("no image topics") : qsTr("select topic")
+                // alternateText overrides the shown text whenever it is non-empty,
+                // so clear it once a topic is picked to show the topic name itself.
+                alternateText: RosBridge.imageTopics.length === 0 ? qsTr("no image topics")
+                             : RosBridge.imageTopic === ""        ? qsTr("select topic")
+                             : ""
                 onActivated: RosBridge.setImageTopic(currentText)
             }
 

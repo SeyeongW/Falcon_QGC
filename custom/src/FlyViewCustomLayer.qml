@@ -225,9 +225,16 @@ Item {
 
     Rectangle {
         id:                     attitudeIndicator
+        // When the (tall) mission phase panel is present it would overlap the
+        // attitude indicator, so stack the attitude directly below the panel on
+        // the right edge. Non-ROS builds (no panel) keep the original bottom-right
+        // position. Clearing the unused anchor with `undefined` avoids
+        // over-constraining.
+        anchors.top:            missionPhaseLoader.active ? missionPhaseLoader.bottom : undefined
+        anchors.topMargin:      _toolsMargin
+        anchors.bottom:         missionPhaseLoader.active ? undefined : parent.bottom
         anchors.bottomMargin:   _toolsMargin + parentToolInsets.bottomEdgeRightInset
         anchors.rightMargin:    _toolsMargin
-        anchors.bottom:         parent.bottom
         anchors.right:          parent.right
         height:                 ScreenTools.defaultFontPixelHeight * 6
         width:                  height
@@ -243,93 +250,20 @@ Item {
     }
 
     //-------------------------------------------------------------------------
-    //-- Aircraft status panel (VTOL-GCS)
-    //   Top-down quadplane whose shape adapts to flight mode: hover shows the
-    //   spinning lift rotors, forward flight shows the pusher + control surfaces.
-    Rectangle {
-        id:                     controlSurfacePanel
+    //-- Mission phase orchestrator panel (VTOL-GCS, ROS build only)
+    //   Sequential phase checklist with live progress / section text, driven by
+    //   RosBridge (command/run_phase <-> command/status). Top-right corner
+    //   (replaces the old control-surface panel); the attitude indicator stacks
+    //   directly below it.
+    Loader {
+        id:                     missionPhaseLoader
+        active:                 (typeof customRosEnabled !== 'undefined') && customRosEnabled
+        source:                 active ? "qrc:/qml/Custom/Widgets/MissionPhasePanel.qml" : ""
         anchors.top:            parent.top
         anchors.right:          parent.right
         anchors.topMargin:      parentToolInsets.topEdgeRightInset + _toolsMargin
         anchors.rightMargin:    _toolsMargin
-        width:                  ScreenTools.defaultFontPixelWidth * 28
-        height:                 width + controlSurfaceTitle.height + (_toolsMargin * 2)
-        radius:                 4
-        color:                  qgcPal.window
-        opacity:                0.92
-
-        // --- Live actuator source, priority: MAVROS RCOut (real aircraft
-        //     behavior) > MAVLink SERVO_OUTPUT_RAW > nothing (static/neutral).
-        //     No mock animation: with no data the aircraft stays still. ---
-        property var  _rosSource: rosActuatorLoader.item
-        property bool _haveRos:   _rosSource ? _rosSource.have : false
-        property var  _rosChan:   (_rosSource && _rosSource.channels) ? _rosSource.channels : []
-
-        property var  _servo:     []      // latest SERVO_OUTPUT_RAW (ch1..16, us)
-        property bool _haveServo: _servo.length >= 8 && _servo[0] > 0
-
-        Connections {
-            target: _activeVehicle
-            ignoreUnknownSignals: true
-            function onServoOutputsChanged(servoValues) { controlSurfacePanel._servo = servoValues }
-        }
-
-        // Unified channel array ([0] = ch1); prefer MAVROS when it is live.
-        property bool _haveLive: _haveRos || _haveServo
-        property var  _chan:     _haveRos ? _rosChan : _servo
-
-        // Channel -> normalized helpers (matches custom/tools/fake_mavlink.py and
-        // the RCOut channel order): ch1 aileron, ch2 elevator, ch3 pusher,
-        // ch4 rudder, ch5-8 lift motors. Returns 0 (neutral) when no live data.
-        function _surf(ch) { return _haveLive && _chan[ch] > 0 ? (_chan[ch] - 1500) / 500  : 0 }
-        function _mot(ch)  { return _haveLive && _chan[ch] > 0 ? (_chan[ch] - 1000) / 1000 : 0 }
-
-        // Mode: real VTOL state when connected, otherwise hover (no fake toggle).
-        property bool _fwdMode: (_activeVehicle && _activeVehicle.vtol)
-                                ? _activeVehicle.vtolInFwdFlight
-                                : false
-
-        QGCLabel {
-            id:                         controlSurfaceTitle
-            anchors.top:                parent.top
-            anchors.topMargin:          _toolsMargin * 0.5
-            anchors.horizontalCenter:   parent.horizontalCenter
-            text:                       qsTr("Aircraft  ·  ") + (controlSurfacePanel._fwdMode ? qsTr("FORWARD") : qsTr("HOVER"))
-            color:                      qgcPal.text
-            font.pointSize:             ScreenTools.smallFontPointSize
-        }
-
-        ControlSurfaceWidget {
-            anchors.top:        controlSurfaceTitle.bottom
-            anchors.left:       parent.left
-            anchors.right:      parent.right
-            anchors.bottom:     parent.bottom
-            anchors.margins:    _toolsMargin
-
-            fixedWingMode:      controlSurfacePanel._fwdMode
-
-            // Real actuator values; helpers return 0 (neutral) when no live data.
-            aileronLeftDeflection:   controlSurfacePanel._surf(0)
-            aileronRightDeflection: -controlSurfacePanel._surf(0)
-            elevatorDeflection:      controlSurfacePanel._surf(1)
-            rudderDeflection:        controlSurfacePanel._surf(3)
-
-            liftThrottleFL: controlSurfacePanel._mot(4)
-            liftThrottleFR: controlSurfacePanel._mot(5)
-            liftThrottleRL: controlSurfacePanel._mot(6)
-            liftThrottleRR: controlSurfacePanel._mot(7)
-            pusherThrottle: controlSurfacePanel._mot(2)
-        }
-    }
-
-    //-------------------------------------------------------------------------
-    //-- MAVROS actuator (RCOut) source for the control-surface widget.
-    //   Non-visual; gated like the video panel so non-ROS builds don't import
-    //   Custom.Ros. When inactive the widget falls back to MAVLink servo / static.
-    Loader {
-        id:     rosActuatorLoader
-        active: (typeof customRosEnabled !== 'undefined') && customRosEnabled
-        source: active ? "qrc:/qml/Custom/Widgets/RosActuatorSource.qml" : ""
+        width:                  ScreenTools.defaultFontPixelWidth * 32
     }
 
     //-------------------------------------------------------------------------

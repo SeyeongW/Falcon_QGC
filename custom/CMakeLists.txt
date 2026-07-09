@@ -66,6 +66,7 @@ if(QGC_ENABLE_ROS)
     set(CUSTOM_ROS_QML_FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/RosVideoPanel.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/RosActuatorSource.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionPhasePanel.qml
     )
 endif()
 
@@ -137,6 +138,7 @@ if(QGC_ENABLE_ROS)
     message(STATUS "QGC: ROS2 bridge enabled")
     find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick)
     find_package(rclcpp REQUIRED)
+    find_package(std_msgs REQUIRED)
     find_package(sensor_msgs REQUIRED)
     find_package(mavros_msgs REQUIRED)
 
@@ -154,7 +156,7 @@ if(QGC_ENABLE_ROS)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Ros
     )
     target_link_libraries(CustomRosBridge PUBLIC Qt6::Core Qt6::Gui Qt6::Quick)
-    ament_target_dependencies(CustomRosBridge PUBLIC rclcpp sensor_msgs mavros_msgs)
+    ament_target_dependencies(CustomRosBridge PUBLIC rclcpp std_msgs sensor_msgs mavros_msgs)
 endif()
 
 # ============================================================================

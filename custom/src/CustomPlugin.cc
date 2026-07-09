@@ -6,6 +6,7 @@
 #include "QGCPalette.h"
 #include "QGCMAVLink.h"
 #include "AppSettings.h"
+#include "FlyViewSettings.h"
 #include "CustomGeoclueSource.h"
 #ifdef QGC_ENABLE_ROS
 #include "RosBridge.h"
@@ -95,6 +96,12 @@ void CustomPlugin::adjustSettingMetaData(const QString& settingsGroup, FactMetaD
         } else if (metaData.name() == AppSettings::offlineEditingVehicleClassName) {
             metaData.setRawDefaultValue(QGCMAVLink::VehicleClassMultiRotor);
             userVisible = false;
+            return;
+        }
+    } else if (settingsGroup == FlyViewSettings::settingsGroup) {
+        // Default the Fly View map to keep the vehicle centered on screen.
+        if (metaData.name() == FlyViewSettings::keepMapCenteredOnVehicleName) {
+            metaData.setRawDefaultValue(true);
             return;
         }
     }
@@ -262,8 +269,13 @@ void CustomPlugin::paletteOverride(const QString &colorName, QGCPalette::Palette
 
 QGeoPositionInfoSource* CustomPlugin::createPositionSource(QObject* parent)
 {
-    // Coarse "laptop GPS" via geoclue, made acceptable to QGC's accuracy gate.
-    return new CustomGeoclueSource(parent);
+    // Stock position handling (return nullptr -> QGC uses its default source with
+    // the normal accuracy gate). The coarse geoclue "laptop GPS" override
+    // (CustomGeoclueSource) forced a low-accuracy fix to be accepted, which made
+    // the map auto-center on the ground station instead of the vehicle's spawn/
+    // home. Disabled by default; re-enable by returning CustomGeoclueSource.
+    Q_UNUSED(parent);
+    return nullptr;
 }
 
 QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)

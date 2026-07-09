@@ -27,47 +27,45 @@ const QVariantList &CustomAutoPilotPlugin::vehicleComponents()
         return _components;
     }
 
-    const bool showAdvanced = QGCCorePlugin::instance()->showAdvancedUI();
     if (!_vehicle->parameterManager()->parametersReady()) {
         qWarning() << "Call to vehicleCompenents prior to parametersReady";
         return _components;
     }
 
-    if (showAdvanced) {
-        _airframeComponent = new AirframeComponent(_vehicle, this);
-        _airframeComponent->setupTriggerSignals();
-        _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_airframeComponent)));
+    // Show the full stock PX4 setup page set (Airframe/Sensors/Radio/Flight Modes/
+    // Power/Motors/Safety/Tuning) regardless of advanced mode, so parameters and
+    // vehicle setup are always accessible like in stock QGC.
+    _airframeComponent = new AirframeComponent(_vehicle, this);
+    _airframeComponent->setupTriggerSignals();
+    _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_airframeComponent)));
 
-        _sensorsComponent = new SensorsComponent(_vehicle, this);
-        _sensorsComponent->setupTriggerSignals();
-        _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_sensorsComponent)));
+    _sensorsComponent = new SensorsComponent(_vehicle, this);
+    _sensorsComponent->setupTriggerSignals();
+    _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_sensorsComponent)));
 
-        _radioComponent = new PX4RadioComponent(_vehicle, this);
-        _radioComponent->setupTriggerSignals();
-        _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_radioComponent)));
+    _radioComponent = new PX4RadioComponent(_vehicle, this);
+    _radioComponent->setupTriggerSignals();
+    _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_radioComponent)));
 
-        _flightModesComponent = new FlightModesComponent(_vehicle, this);
-        _flightModesComponent->setupTriggerSignals();
-        _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_flightModesComponent)));
+    _flightModesComponent = new FlightModesComponent(_vehicle, this);
+    _flightModesComponent->setupTriggerSignals();
+    _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_flightModesComponent)));
 
-        _powerComponent = new PowerComponent(_vehicle, this);
-        _powerComponent->setupTriggerSignals();
-        _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_powerComponent)));
+    _powerComponent = new PowerComponent(_vehicle, this);
+    _powerComponent->setupTriggerSignals();
+    _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_powerComponent)));
 
-        _motorComponent = new MotorComponent(_vehicle, this);
-        _motorComponent->setupTriggerSignals();
-        _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_motorComponent)));
-    }
+    _motorComponent = new MotorComponent(_vehicle, this);
+    _motorComponent->setupTriggerSignals();
+    _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_motorComponent)));
 
     _safetyComponent = new SafetyComponent(_vehicle, this);
     _safetyComponent->setupTriggerSignals();
     _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_safetyComponent)));
 
-    if (showAdvanced) {
-        _tuningComponent = new PX4TuningComponent(_vehicle, this);
-        _tuningComponent->setupTriggerSignals();
-        _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_tuningComponent)));
-    }
+    _tuningComponent = new PX4TuningComponent(_vehicle, this);
+    _tuningComponent->setupTriggerSignals();
+    _components.append(QVariant::fromValue(reinterpret_cast<VehicleComponent*>(_tuningComponent)));
 
     return _components;
 }
