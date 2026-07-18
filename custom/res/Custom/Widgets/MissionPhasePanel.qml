@@ -17,14 +17,17 @@ import Custom.Ros
 Rectangle {
     id: root
 
-    color: qgcPal.window
-    radius: 4
-    border.color: qgcPal.groupBorder
+    color: Qt.rgba(0.03, 0.08, 0.14, 0.94)
+    radius: 6
+    border.color: Qt.rgba(0.22, 0.74, 0.97, 0.70)
     border.width: 1
-    opacity: 0.95
+    opacity: 0.98
 
     readonly property real   _margin: ScreenTools.defaultFontPixelWidth * 0.75
-    readonly property color  _accent: "#1D4ED8"   // FALCON signature deep blue
+    readonly property color  _accent: "#38BDF8"
+    readonly property color  _accentBlue: "#1D4ED8"
+    readonly property color  _panel: "#0B1D33"
+    readonly property color  _mutedText: "#94A3B8"
 
     // Static phase metadata (title + one-line description). Index == phase id.
     readonly property var _phases: [
@@ -81,10 +84,23 @@ Rectangle {
             Layout.fillWidth: true
             spacing: root._margin
 
-            QGCLabel {
-                text: qsTr("임무 시퀀스")
-                font.bold: true
+            ColumnLayout {
                 Layout.fillWidth: true
+                spacing: 0
+
+                QGCLabel {
+                    text: qsTr("MISSION PHASE CONTROL")
+                    color: "white"
+                    font.bold: true
+                    Layout.fillWidth: true
+                }
+
+                QGCLabel {
+                    text: qsTr("로봇항공기 경연 임무 진행도")
+                    color: root._accent
+                    font.pointSize: ScreenTools.smallFontPointSize
+                    Layout.fillWidth: true
+                }
             }
             Rectangle {   // link indicator dot
                 width: ScreenTools.defaultFontPixelWidth * 1.1
@@ -99,13 +115,13 @@ Rectangle {
                                    : root._connFailed ? qsTr("연결 실패")
                                                       : qsTr("연결 시도 중…")
                 font.pointSize: ScreenTools.smallFontPointSize
-                color: root._linkOk ? qgcPal.text
+                color: root._linkOk ? "#86EFAC"
                                     : root._connFailed ? qgcPal.colorRed
                                                        : qgcPal.colorYellow
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: qgcPal.groupBorder }
+        Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(0.22, 0.74, 0.97, 0.28) }
 
         // --- phase rows ---
         Repeater {
@@ -122,10 +138,10 @@ Rectangle {
 
                 Layout.fillWidth: true
                 Layout.preferredHeight: rowCol.implicitHeight + (root._margin * 1.5)
-                radius: 4
-                color: running ? Qt.rgba(0.11, 0.30, 0.85, 0.18)
-                                : done ? Qt.rgba(qgcPal.text.r, qgcPal.text.g, qgcPal.text.b, 0.04)
-                                       : qgcPal.windowShade
+                radius: 5
+                color: running ? Qt.rgba(0.06, 0.18, 0.34, 0.96)
+                                : done ? Qt.rgba(0.04, 0.16, 0.12, 0.86)
+                                       : root._panel
                 border.width: running ? 1 : 0
                 border.color: root._accent
                 opacity: (done || (!clickable && !running)) ? 0.55 : 1.0
@@ -156,10 +172,10 @@ Rectangle {
                             height: width
                             radius: width / 2
                             color: phaseRow.done ? "#22C55E"
-                                                 : phaseRow.running ? root._accent
-                                                                    : qgcPal.window
+                                                 : phaseRow.running ? root._accentBlue
+                                                                    : "#111827"
                             border.width: 1
-                            border.color: phaseRow.running ? root._accent : qgcPal.groupBorder
+                            border.color: phaseRow.running ? root._accent : Qt.rgba(0.22, 0.74, 0.97, 0.35)
                             QGCLabel {
                                 anchors.centerIn: parent
                                 text: phaseRow.done ? "✓" : phaseRow.index.toString()
@@ -173,6 +189,7 @@ Rectangle {
                             spacing: 0
                             QGCLabel {
                                 text: qsTr("Phase %1 · %2").arg(phaseRow.index).arg(phaseRow.modelData.title)
+                                color: "white"
                                 font.bold: true
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
@@ -183,7 +200,7 @@ Rectangle {
                                 text: phaseRow.running && RosBridge.phaseMsg.length > 0
                                           ? RosBridge.phaseMsg : phaseRow.modelData.desc
                                 font.pointSize: ScreenTools.smallFontPointSize
-                                color: phaseRow.running ? root._accent : qgcPal.colorGrey
+                                color: phaseRow.running ? root._accent : root._mutedText
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
                             }
@@ -198,7 +215,7 @@ Rectangle {
                             font.pointSize: ScreenTools.smallFontPointSize
                             font.bold: phaseRow.running
                             color: phaseRow.done ? "#22C55E"
-                                                 : phaseRow.running ? root._accent : qgcPal.colorGrey
+                                                 : phaseRow.running ? root._accent : root._mutedText
                         }
                     }
 
@@ -215,7 +232,7 @@ Rectangle {
         }
 
         // --- status footer ---
-        Rectangle { Layout.fillWidth: true; height: 1; color: qgcPal.groupBorder }
+        Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(0.22, 0.74, 0.97, 0.28) }
 
         RowLayout {
             Layout.fillWidth: true

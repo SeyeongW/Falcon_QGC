@@ -27,6 +27,10 @@ Item {
     property string _messageTitle:          ""
     property string _messageText:           ""
     property real   _toolsMargin:           ScreenTools.defaultFontPixelWidth * 0.75
+    readonly property color  _falconNavy:   "#071526"
+    readonly property color  _falconPanel:  "#0B1D33"
+    readonly property color  _falconCyan:   "#38BDF8"
+    readonly property color  _falconBlue:   "#1D4ED8"
 
     function secondsToHHMMSS(timeS) {
         var sec_num = parseInt(timeS, 10);
@@ -76,6 +80,82 @@ Item {
     }
 
     //-------------------------------------------------------------------------
+    //-- VTOL-GCS mission header
+    Rectangle {
+        id:                         missionHeader
+        anchors.top:                parent.top
+        anchors.left:               parent.left
+        anchors.topMargin:          parentToolInsets.topEdgeLeftInset + _toolsMargin
+        anchors.leftMargin:         parentToolInsets.leftEdgeTopInset + _toolsMargin
+        width:                      ScreenTools.defaultFontPixelWidth * 38
+        height:                     ScreenTools.defaultFontPixelHeight * 4.2
+        radius:                     6
+        color:                      Qt.rgba(0.03, 0.08, 0.14, 0.90)
+        border.color:               Qt.rgba(0.22, 0.74, 0.97, 0.75)
+        border.width:               1
+
+        RowLayout {
+            anchors.fill:           parent
+            anchors.margins:        _toolsMargin
+            spacing:                _toolsMargin
+
+            Rectangle {
+                Layout.preferredWidth:  ScreenTools.defaultFontPixelHeight * 2.2
+                Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 2.2
+                radius:                 5
+                color:                  _falconBlue
+                border.color:           _falconCyan
+                border.width:           1
+
+                QGCLabel {
+                    anchors.centerIn:   parent
+                    text:               "F"
+                    color:              "white"
+                    font.bold:          true
+                    font.pointSize:     ScreenTools.mediumFontPointSize
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth:       true
+                spacing:                0
+
+                QGCLabel {
+                    text:               qsTr("FALCON VTOL-GCS")
+                    color:              "white"
+                    font.bold:          true
+                    font.pointSize:     ScreenTools.defaultFontPointSize
+                }
+
+                QGCLabel {
+                    text:               _activeVehicle ? qsTr("LIVE MISSION CONSOLE") : qsTr("SIMULATION CONSOLE")
+                    color:              _falconCyan
+                    font.pointSize:     ScreenTools.smallFontPointSize
+                    font.letterSpacing: 1
+                }
+            }
+
+            Rectangle {
+                Layout.preferredWidth:  ScreenTools.defaultFontPixelWidth * 7.5
+                Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.7
+                radius:                 4
+                color:                  _activeVehicle ? Qt.rgba(0.13, 0.77, 0.37, 0.18)
+                                                       : Qt.rgba(0.96, 0.62, 0.04, 0.18)
+                border.color:           _activeVehicle ? "#22C55E" : "#F59E0B"
+                border.width:           1
+
+                QGCLabel {
+                    anchors.centerIn:   parent
+                    text:               _activeVehicle ? qsTr("VEHICLE") : qsTr("STANDBY")
+                    color:              _activeVehicle ? "#86EFAC" : "#FCD34D"
+                    font.bold:          true
+                    font.pointSize:     ScreenTools.smallFontPointSize
+                }
+            }
+        }
+    }
+
+    //-------------------------------------------------------------------------
     //-- Heading Indicator
     Rectangle {
         id:                         compassBar
@@ -83,8 +163,10 @@ Item {
         width:                      ScreenTools.defaultFontPixelWidth  * 50
         anchors.bottom:             parent.bottom
         anchors.bottomMargin:       _toolsMargin
-        color:                      "#DEDEDE"
-        radius:                     2
+        color:                      Qt.rgba(0.03, 0.08, 0.14, 0.88)
+        radius:                     5
+        border.color:               Qt.rgba(0.22, 0.74, 0.97, 0.45)
+        border.width:               1
         clip:                       true
         anchors.horizontalCenter:   parent.horizontalCenter
         Repeater {
@@ -100,7 +182,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 x:              visible ? ((modelData * (compassBar.width / 360)) - (width * 0.5)) : 0
                 visible:        _angle % 45 == 0
-                color:          "#75505565"
+                color:          Qt.rgba(0.75, 0.88, 1.0, 0.72)
                 font.pointSize: ScreenTools.smallFontPointSize
                 text: {
                     switch(_angle) {
@@ -122,13 +204,16 @@ Item {
         id:                         headingIndicator
         height:                     ScreenTools.defaultFontPixelHeight
         width:                      ScreenTools.defaultFontPixelWidth * 4
-        color:                      qgcPal.windowShadeDark
+        color:                      _falconBlue
+        radius:                     3
+        border.color:               _falconCyan
+        border.width:               1
         anchors.top:                compassBar.top
         anchors.topMargin:          -headingIndicator.height / 2
         anchors.horizontalCenter:   parent.horizontalCenter
         QGCLabel {
             text:                   _heading
-            color:                  qgcPal.text
+            color:                  "white"
             font.pointSize:         ScreenTools.smallFontPointSize
             anchors.centerIn:       parent
         }
@@ -153,7 +238,9 @@ Item {
         width:                  -anchors.rightMargin + compassBezel.width + (_toolsMargin * 2)
         height:                 attitudeIndicator.height * 0.75
         radius:                 2
-        color:                  qgcPal.window
+        color:                  Qt.rgba(0.03, 0.08, 0.14, 0.88)
+        border.color:           Qt.rgba(0.22, 0.74, 0.97, 0.55)
+        border.width:           1
 
         Rectangle {
             id:                     compassBezel
@@ -163,7 +250,7 @@ Item {
             width:                  height
             height:                 parent.height - (northLabelBackground.height / 2) - (headingLabelBackground.height / 2)
             radius:                 height / 2
-            border.color:           qgcPal.text
+            border.color:           _falconCyan
             border.width:           1
             color:                  Qt.rgba(0,0,0,0)
         }
@@ -176,13 +263,13 @@ Item {
             width:                      northLabel.contentWidth * 1.5
             height:                     northLabel.contentHeight * 1.5
             radius:                     ScreenTools.defaultFontPixelWidth  * 0.25
-            color:                      qgcPal.windowShade
+            color:                      _falconPanel
 
             QGCLabel {
                 id:                 northLabel
                 anchors.centerIn:   parent
                 text:               "N"
-                color:              qgcPal.text
+                color:              "white"
                 font.pointSize:     ScreenTools.smallFontPointSize
             }
         }
@@ -211,13 +298,13 @@ Item {
             width:                      headingLabel.contentWidth * 1.5
             height:                     headingLabel.contentHeight * 1.5
             radius:                     ScreenTools.defaultFontPixelWidth  * 0.25
-            color:                      qgcPal.windowShade
+            color:                      _falconPanel
 
             QGCLabel {
                 id:                 headingLabel
                 anchors.centerIn:   parent
                 text:               _heading
-                color:              qgcPal.text
+                color:              "white"
                 font.pointSize:     ScreenTools.smallFontPointSize
             }
         }
@@ -239,7 +326,9 @@ Item {
         height:                 ScreenTools.defaultFontPixelHeight * 6
         width:                  height
         radius:                 height * 0.5
-        color:                  qgcPal.windowShade
+        color:                  Qt.rgba(0.03, 0.08, 0.14, 0.88)
+        border.color:           Qt.rgba(0.22, 0.74, 0.97, 0.55)
+        border.width:           1
 
         CustomAttitudeWidget {
             size:               parent.height * 0.95
