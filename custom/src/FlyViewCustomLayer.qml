@@ -225,9 +225,16 @@ Item {
 
     Rectangle {
         id:                     attitudeIndicator
+        // When the (tall) mission phase panel is present it would overlap the
+        // attitude indicator, so stack the attitude directly below the panel on
+        // the right edge. Non-ROS builds (no panel) keep the original bottom-right
+        // position. Clearing the unused anchor with `undefined` avoids
+        // over-constraining.
+        anchors.top:            missionPhaseLoader.active ? missionPhaseLoader.bottom : undefined
+        anchors.topMargin:      _toolsMargin
+        anchors.bottom:         missionPhaseLoader.active ? undefined : parent.bottom
         anchors.bottomMargin:   _toolsMargin + parentToolInsets.bottomEdgeRightInset
         anchors.rightMargin:    _toolsMargin
-        anchors.bottom:         parent.bottom
         anchors.right:          parent.right
         height:                 ScreenTools.defaultFontPixelHeight * 6
         width:                  height
@@ -243,82 +250,35 @@ Item {
     }
 
     //-------------------------------------------------------------------------
-    //-- Aircraft status panel (VTOL-GCS)
-    //   Top-down quadplane whose shape adapts to flight mode: hover shows the
-    //   spinning lift rotors, forward flight shows the pusher + control surfaces.
-    Rectangle {
-        id:                     controlSurfacePanel
+    //-- Mission phase orchestrator panel (VTOL-GCS, ROS build only)
+    //   Sequential phase checklist with live progress / section text, driven by
+    //   RosBridge (command/run_phase <-> command/status). Top-right corner
+    //   (replaces the old control-surface panel); the attitude indicator stacks
+    //   directly below it.
+    Loader {
+        id:                     missionPhaseLoader
+        active:                 (typeof customRosEnabled !== 'undefined') && customRosEnabled
+        source:                 active ? "qrc:/qml/Custom/Widgets/MissionPhasePanel.qml" : ""
         anchors.top:            parent.top
         anchors.right:          parent.right
         anchors.topMargin:      parentToolInsets.topEdgeRightInset + _toolsMargin
         anchors.rightMargin:    _toolsMargin
-        width:                  ScreenTools.defaultFontPixelWidth * 28
-        height:                 width + controlSurfaceTitle.height + (_toolsMargin * 2)
-        radius:                 4
-        color:                  qgcPal.window
-        opacity:                0.92
+        width:                  ScreenTools.defaultFontPixelWidth * 32
+    }
 
-        // --- Source: live SERVO_OUTPUT_RAW when a vehicle is connected,
-        //     otherwise an animated mock so the panel is alive in the editor. ---
-        property var  _servo:     []      // latest SERVO_OUTPUT_RAW (ch1..16, us)
-        property bool _haveServo: _servo.length >= 8 && _servo[0] > 0
-
-        Connections {
-            target: _activeVehicle
-            ignoreUnknownSignals: true
-            function onServoOutputsChanged(servoValues) { controlSurfacePanel._servo = servoValues }
-        }
-
-        // Channel -> normalized helpers (matches custom/tools/fake_mavlink.py):
-        // ch1 aileron, ch2 elevator, ch3 pusher, ch4 rudder, ch5-8 lift motors.
-        function _surf(ch) { return _haveServo && _servo[ch] > 0 ? (_servo[ch] - 1500) / 500  : 0 }
-        function _mot(ch)  { return _haveServo && _servo[ch] > 0 ? (_servo[ch] - 1000) / 1000 : 0 }
-
-        // Mock driver, used only when there is no live servo telemetry.
-        property real _t: 0
-        NumberAnimation on _t {
-            from: 0; to: Math.PI * 2; duration: 4000
-            loops: Animation.Infinite; running: !controlSurfacePanel._haveServo
-        }
-        property bool _demoFwd: true
-        Timer {
-            interval: 6000; running: !controlSurfacePanel._haveServo; repeat: true
-            onTriggered: controlSurfacePanel._demoFwd = !controlSurfacePanel._demoFwd
-        }
-        // Mode: real VTOL state if connected, otherwise the demo toggle.
-        property bool _fwdMode: (_activeVehicle && _activeVehicle.vtol)
-                                ? _activeVehicle.vtolInFwdFlight
-                                : _demoFwd
-
-        QGCLabel {
-            id:                         controlSurfaceTitle
-            anchors.top:                parent.top
-            anchors.topMargin:          _toolsMargin * 0.5
-            anchors.horizontalCenter:   parent.horizontalCenter
-            text:                       qsTr("Aircraft  ·  ") + (controlSurfacePanel._fwdMode ? qsTr("FORWARD") : qsTr("HOVER"))
-            color:                      qgcPal.text
-            font.pointSize:             ScreenTools.smallFontPointSize
-        }
-
-        ControlSurfaceWidget {
-            anchors.top:        controlSurfaceTitle.bottom
-            anchors.left:       parent.left
-            anchors.right:      parent.right
-            anchors.bottom:     parent.bottom
-            anchors.margins:    _toolsMargin
-
-            fixedWingMode:      controlSurfacePanel._fwdMode
-
-            aileronLeftDeflection:  controlSurfacePanel._haveServo ?  controlSurfacePanel._surf(0) :  Math.sin(controlSurfacePanel._t)
-            aileronRightDeflection: controlSurfacePanel._haveServo ? -controlSurfacePanel._surf(0) : -Math.sin(controlSurfacePanel._t)
-            elevatorDeflection:     controlSurfacePanel._haveServo ?  controlSurfacePanel._surf(1) :  Math.sin(controlSurfacePanel._t * 0.7)
-            rudderDeflection:       controlSurfacePanel._haveServo ?  controlSurfacePanel._surf(3) :  Math.sin(controlSurfacePanel._t * 0.5)
-
-            liftThrottleFL: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(4) : 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2)
-            liftThrottleFR: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(5) : 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2 + 1)
-            liftThrottleRL: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(6) : 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2 + 2)
-            liftThrottleRR: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(7) : 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2 + 3)
-            pusherThrottle: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(2) : 0.6
-        }
+    //-------------------------------------------------------------------------
+    //-- Recognition video panel (VTOL-GCS, ROS build only)
+    //   Loaded by URL and gated on `customRosEnabled` (set from CustomPlugin)
+    //   so non-ROS builds never try to import Custom.Ros.
+    Loader {
+        id:                     rosVideoLoader
+        active:                 (typeof customRosEnabled !== 'undefined') && customRosEnabled
+        source:                 active ? "qrc:/qml/Custom/Widgets/RosVideoPanel.qml" : ""
+        anchors.left:           parent.left
+        anchors.bottom:         parent.bottom
+        anchors.leftMargin:     _toolsMargin
+        anchors.bottomMargin:   _toolsMargin + parentToolInsets.bottomEdgeLeftInset
+        width:                  ScreenTools.defaultFontPixelWidth * 34
+        height:                 ScreenTools.defaultFontPixelHeight * 15
     }
 }
