@@ -11,11 +11,11 @@
 #ifdef QGC_ENABLE_ROS
 #include "RosBridge.h"
 #include "RosVideoView.h"
-#include <QtQml/QQmlContext>
 #endif
 
 #include <QtCore/QApplicationStatic>
 #include <QtQml/QQmlApplicationEngine>
+#include <QtQml/QQmlContext>
 #include <QtQml/QQmlFile>
 
 QGC_LOGGING_CATEGORY(CustomLog, "Custom.CustomPlugin")
