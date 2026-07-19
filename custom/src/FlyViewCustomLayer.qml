@@ -31,6 +31,7 @@ Item {
     readonly property color  _falconPanel:  "#0B1D33"
     readonly property color  _falconCyan:   "#38BDF8"
     readonly property color  _falconBlue:   "#1D4ED8"
+    readonly property color  _falconMint:   "#5796B4"
 
     function _clampMissionHeader() {
         if (!missionHeader || !missionHeader.parent) {
@@ -191,7 +192,7 @@ Item {
         anchors.bottomMargin:       _toolsMargin
         color:                      Qt.rgba(0.03, 0.08, 0.14, 0.88)
         radius:                     5
-        border.color:               Qt.rgba(0.22, 0.74, 0.97, 0.45)
+        border.color:               Qt.rgba(0.34, 0.59, 0.71, 0.62)
         border.width:               1
         clip:                       true
         anchors.horizontalCenter:   parent.horizontalCenter
@@ -232,7 +233,7 @@ Item {
         width:                      ScreenTools.defaultFontPixelWidth * 4
         color:                      _falconBlue
         radius:                     3
-        border.color:               _falconCyan
+        border.color:               _falconMint
         border.width:               1
         anchors.top:                compassBar.top
         anchors.topMargin:          -headingIndicator.height / 2
@@ -265,7 +266,7 @@ Item {
         height:                 attitudeIndicator.height * 0.75
         radius:                 2
         color:                  Qt.rgba(0.03, 0.08, 0.14, 0.88)
-        border.color:           Qt.rgba(0.22, 0.74, 0.97, 0.55)
+        border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
         border.width:           1
 
         Rectangle {
@@ -276,7 +277,7 @@ Item {
             width:                  height
             height:                 parent.height - (northLabelBackground.height / 2) - (headingLabelBackground.height / 2)
             radius:                 height / 2
-            border.color:           _falconCyan
+            border.color:           _falconMint
             border.width:           1
             color:                  Qt.rgba(0,0,0,0)
         }
@@ -353,7 +354,7 @@ Item {
         width:                  height
         radius:                 height * 0.5
         color:                  Qt.rgba(0.03, 0.08, 0.14, 0.88)
-        border.color:           Qt.rgba(0.22, 0.74, 0.97, 0.55)
+        border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
         border.width:           1
 
         CustomAttitudeWidget {
