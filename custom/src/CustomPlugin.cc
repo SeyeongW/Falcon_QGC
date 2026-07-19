@@ -6,7 +6,9 @@
 #include "QGCPalette.h"
 #include "QGCMAVLink.h"
 #include "AppSettings.h"
+#include "FlightMapSettings.h"
 #include "FlyViewSettings.h"
+#include "SettingsManager.h"
 #include "CustomGeoclueSource.h"
 #ifdef QGC_ENABLE_ROS
 #include "RosBridge.h"
@@ -102,6 +104,16 @@ void CustomPlugin::adjustSettingMetaData(const QString& settingsGroup, FactMetaD
         // Default the Fly View map to keep the vehicle centered on screen.
         if (metaData.name() == FlyViewSettings::keepMapCenteredOnVehicleName) {
             metaData.setRawDefaultValue(true);
+            return;
+        }
+    } else if (settingsGroup == FlightMapSettings::settingsGroup) {
+        if (metaData.name() == FlightMapSettings::mapProviderName) {
+            metaData.setRawDefaultValue(QStringLiteral("Google"));
+            userVisible = false;
+            return;
+        } else if (metaData.name() == FlightMapSettings::mapTypeName) {
+            metaData.setRawDefaultValue(QStringLiteral("Street Map"));
+            userVisible = false;
             return;
         }
     }
@@ -280,6 +292,11 @@ QGeoPositionInfoSource* CustomPlugin::createPositionSource(QObject* parent)
 
 QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
 {
+    if (FlightMapSettings* const flightMapSettings = SettingsManager::instance()->flightMapSettings()) {
+        flightMapSettings->mapProvider()->setRawValue(QStringLiteral("Google"));
+        flightMapSettings->mapType()->setRawValue(QStringLiteral("Street Map"));
+    }
+
     _qmlEngine = QGCCorePlugin::createQmlApplicationEngine(parent);
     _qmlEngine->addImportPath("qrc:/qml/Custom/Widgets");
     _qmlEngine->addImportPath("qrc:/qml/Custom/Plan");
