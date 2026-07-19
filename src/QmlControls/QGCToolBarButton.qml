@@ -17,6 +17,7 @@ Button {
     property bool logo: false
 
     property real _horizontalMargin: ScreenTools.defaultFontPixelWidth
+    property real _logoVerticalCenterOffset: ScreenTools.defaultFontPixelHeight * 0.28
 
     onCheckedChanged: checkable = false
 
@@ -38,6 +39,7 @@ Button {
             width:                  height
             source:                 visible ? button.icon.source : ""
             anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: button._logoVerticalCenterOffset
         }
         QGCColoredImage {
             visible:                !button.logo
