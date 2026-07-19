@@ -25,6 +25,7 @@
     </qresource>
     <qresource prefix="/Custom/res">
         <file alias="QGCLogoFull.svg">res/Images/QGCLogoFull.svg</file>
+        <file alias="custom_qgroundcontrol.svg">res/icons/custom_qgroundcontrol.svg</file>
         <file alias="qgroundcontrol.ico">res/icons/custom_qgroundcontrol.ico</file>
     </qresource>
     <qresource prefix="/res">

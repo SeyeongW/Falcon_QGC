@@ -17,6 +17,7 @@ Button {
     property bool   setupComplete:  true                                    ///< true: setup complete indicator shows as completed
     property var    imageColor:     undefined
     property string imageResource:  "/qmlimages/subMenuButtonImage.png"     ///< Button image
+    property bool   preserveImageColors: false
     property bool   largeSize:      false
     property bool   showHighlight:  control.pressed | control.checked
 
@@ -48,18 +49,29 @@ Button {
             opacity:        showHighlight ? 1 : control.enabled && control.hovered ? .2 : 0
         }
 
-        QGCColoredImage {
+        Item {
             id:                     image
             anchors.leftMargin:     ScreenTools.defaultFontPixelWidth
             anchors.left:           parent.left
             anchors.verticalCenter: parent.verticalCenter
             width:                  ScreenTools.defaultFontPixelHeight * 2
             height:                 ScreenTools.defaultFontPixelHeight * 2
-            fillMode:               Image.PreserveAspectFit
-            mipmap:                 true
-            color:                  imageColor ? imageColor : (control.setupComplete ? titleBar.color : "red")
-            source:                 control.imageResource
-            sourceSize:             control.sourceSize
+
+            QGCVectorImage {
+                visible:        control.preserveImageColors
+                anchors.fill:   parent
+                source:         visible ? control.imageResource : ""
+            }
+
+            QGCColoredImage {
+                visible:        !control.preserveImageColors
+                anchors.fill:   parent
+                fillMode:       Image.PreserveAspectFit
+                mipmap:         true
+                color:          imageColor ? imageColor : (control.setupComplete ? titleBar.color : "red")
+                source:         visible ? control.imageResource : ""
+                sourceSize:     control.sourceSize
+            }
         }
 
         QGCLabel {
