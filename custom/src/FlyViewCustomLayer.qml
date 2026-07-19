@@ -32,6 +32,14 @@ Item {
     readonly property color  _falconCyan:   "#38BDF8"
     readonly property color  _falconBlue:   "#1D4ED8"
 
+    function _clampMissionHeader() {
+        if (!missionHeader || !missionHeader.parent) {
+            return
+        }
+        missionHeader.x = Math.max(0, Math.min(missionHeader.x, missionHeader.parent.width - missionHeader.width))
+        missionHeader.y = Math.max(0, Math.min(missionHeader.y, missionHeader.parent.height - missionHeader.height))
+    }
+
     function secondsToHHMMSS(timeS) {
         var sec_num = parseInt(timeS, 10);
         var hours   = Math.floor(sec_num / 3600);
@@ -83,16 +91,18 @@ Item {
     //-- VTOL-GCS mission header
     Rectangle {
         id:                         missionHeader
-        anchors.top:                parent.top
-        anchors.left:               parent.left
-        anchors.topMargin:          parentToolInsets.topEdgeLeftInset + _toolsMargin
-        anchors.leftMargin:         parentToolInsets.leftEdgeTopInset + _toolsMargin
+        x:                          parentToolInsets.leftEdgeTopInset + _toolsMargin
+        y:                          parentToolInsets.topEdgeLeftInset + _toolsMargin
         width:                      ScreenTools.defaultFontPixelWidth * 38
         height:                     ScreenTools.defaultFontPixelHeight * 4.2
         radius:                     6
         color:                      Qt.rgba(0.03, 0.08, 0.14, 0.90)
         border.color:               Qt.rgba(0.22, 0.74, 0.97, 0.75)
         border.width:               1
+
+        onWidthChanged:             _clampMissionHeader()
+        onHeightChanged:            _clampMissionHeader()
+        Component.onCompleted:      _clampMissionHeader()
 
         RowLayout {
             anchors.fill:           parent
@@ -152,6 +162,22 @@ Item {
                     font.pointSize:     ScreenTools.smallFontPointSize
                 }
             }
+        }
+
+        MouseArea {
+            anchors.fill:           parent
+            acceptedButtons:        Qt.LeftButton
+            cursorShape:            Qt.SizeAllCursor
+            preventStealing:        true
+            drag.target:            missionHeader
+            drag.axis:              Drag.XAndYAxis
+            drag.minimumX:          0
+            drag.minimumY:          0
+            drag.maximumX:          missionHeader.parent ? missionHeader.parent.width - missionHeader.width : 0
+            drag.maximumY:          missionHeader.parent ? missionHeader.parent.height - missionHeader.height : 0
+
+            onReleased:             _clampMissionHeader()
+            onCanceled:             _clampMissionHeader()
         }
     }
 
