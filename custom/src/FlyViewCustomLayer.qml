@@ -114,8 +114,8 @@ Item {
                 Layout.preferredWidth:  ScreenTools.defaultFontPixelHeight * 2.2
                 Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 2.2
                 radius:                 5
-                color:                  _falconBlue
-                border.color:           _falconCyan
+                color:                  _falconMint
+                border.color:           Qt.lighter(_falconMint, 1.18)
                 border.width:           1
 
                 QGCLabel {
