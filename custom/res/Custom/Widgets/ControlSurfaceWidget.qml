@@ -38,6 +38,12 @@ Item {
     // Max visual hinge tilt (deg) for up/down surfaces, and swing for the rudder.
     property real maxTiltAngle:   48
     property real maxRudderAngle: 26
+    property real aileronVisualGain: 1.4
+
+    // Hinge positions within the aspect-fitted aircraft image.
+    property real leftAileronHingeXRatio:  0.21
+    property real rightAileronHingeXRatio: 0.79
+    property real aileronHingeYRatio:      0.52
 
     /// Blend neutral -> direction color by |deflection|.
     function surfaceColor(v) {
@@ -139,6 +145,7 @@ Item {
         // ---- Lift system (booms + 4 rotors): prominent in hover ----
         Item {
             id: liftSystem
+            visible: false
             anchors.fill: parent
             opacity: root.fixedWingMode ? 0.30 : 1.0
             Behavior on opacity { NumberAnimation { duration: 250 } }
@@ -171,33 +178,59 @@ Item {
         }
 
         // ---- Airframe (drawn back-to-front) ----
-        Rectangle {   // horizontal stabilizer
-            x: plane.s * 0.34; width: plane.s * 0.32
-            y: plane.s * 0.78; height: plane.s * 0.045
-            radius: height * 0.4
-            color: root.airframeColor; border.color: root.airframeEdge; border.width: 1
+        Image {
+            anchors.fill: parent
+            source: "/custom/img/aircraft_body.png"
+            fillMode: Image.PreserveAspectFit
         }
-        Rectangle {   // main wing
-            x: plane.s * 0.10; width: plane.s * 0.80
-            y: plane.s * 0.42; height: plane.s * 0.09
-            radius: height * 0.35
-            color: root.airframeColor; border.color: root.airframeEdge; border.width: 1
+
+        Image {
+            id: leftAileronImage
+            anchors.fill: parent
+            source: "/custom/img/aileron_left.png"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            antialiasing: true
+
+            transform: Rotation {
+                origin.x: (leftAileronImage.width - leftAileronImage.paintedWidth) / 2
+                          + leftAileronImage.paintedWidth * root.leftAileronHingeXRatio
+                origin.y: (leftAileronImage.height - leftAileronImage.paintedHeight) / 2
+                          + leftAileronImage.paintedHeight * root.aileronHingeYRatio
+                axis.x: 1
+                axis.y: 0
+                axis.z: 0
+                angle: Math.max(-70, Math.min(70, root.aileronLeftDeflection * root.maxTiltAngle * root.aileronVisualGain))
+                Behavior on angle { NumberAnimation { duration: 130 } }
+            }
         }
-        Rectangle {   // fuselage
-            x: plane.s * 0.465; width: plane.s * 0.07
-            y: plane.s * 0.10;  height: plane.s * 0.80
-            radius: width * 0.5
-            color: root.airframeColor; border.color: root.airframeEdge; border.width: 1
-        }
-        Rectangle {   // nose
-            x: plane.s * 0.475; width: plane.s * 0.05
-            y: plane.s * 0.05; height: plane.s * 0.09
-            radius: width * 0.5
-            color: root.airframeEdge
+
+        Image {
+            id: rightAileronImage
+            anchors.fill: parent
+            source: "/custom/img/aileron_right.png"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            antialiasing: true
+
+            transform: Rotation {
+                origin.x: (rightAileronImage.width - rightAileronImage.paintedWidth) / 2
+                          + rightAileronImage.paintedWidth * root.rightAileronHingeXRatio
+                origin.y: (rightAileronImage.height - rightAileronImage.paintedHeight) / 2
+                          + rightAileronImage.paintedHeight * root.aileronHingeYRatio
+                axis.x: 1
+                axis.y: 0
+                axis.z: 0
+                angle: Math.max(-70, Math.min(70, root.aileronRightDeflection * root.maxTiltAngle * root.aileronVisualGain))
+                Behavior on angle { NumberAnimation { duration: 130 } }
+            }
         }
 
         // ---- Pusher motor (tail): prominent in forward flight ----
         Rotor {
+            visible: false
             width: plane.s * 0.13; height: width
             x: plane.s * 0.50 - width / 2; y: plane.s * 0.90 - height / 2
             active: root.fixedWingMode; throttle: root.pusherThrottle
@@ -206,6 +239,7 @@ Item {
         // ---- Control surfaces: ailerons, elevator, rudder ----
         Item {
             id: controlSurfaces
+            visible: false
             anchors.fill: parent
             opacity: root.fixedWingMode ? 1.0 : 0.30
             Behavior on opacity { NumberAnimation { duration: 250 } }
