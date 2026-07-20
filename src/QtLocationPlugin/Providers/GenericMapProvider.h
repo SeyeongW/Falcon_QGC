@@ -137,6 +137,23 @@ private:
     const QString _mapUrl = QStringLiteral("http://tile.openstreetmap.org/%1/%2/%3.png");
 };
 
+class CartoDarkMapProvider : public MapProvider
+{
+public:
+    CartoDarkMapProvider()
+        : MapProvider(
+            QStringLiteral("CARTO Dark Matter"),
+            QStringLiteral("https://carto.com/attributions"),
+            QStringLiteral("png"),
+            QGC_AVERAGE_TILE_SIZE,
+            MapProvider::StreetMap) {}
+
+private:
+    QString _getURL(int x, int y, int zoom) const final;
+
+    const QString _mapUrl = QStringLiteral("https://basemaps.cartocdn.com/dark_all/%1/%2/%3.png");
+};
+
 class StatkartMapProvider : public MapProvider
 {
 protected:

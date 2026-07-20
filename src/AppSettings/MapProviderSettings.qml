@@ -5,7 +5,7 @@ import QGroundControl
 import QGroundControl.Controls
 
 /// Fixed Falcon map configuration. We intentionally hide provider/type choices
-/// so the custom GCS presents a single Google Street map experience.
+/// so the custom GCS presents a single dark map experience.
 SettingsGroupLayout {
     Layout.fillWidth: true
 
@@ -13,8 +13,8 @@ SettingsGroupLayout {
     property Fact _mapTypeFact:         QGroundControl.settingsManager.flightMapSettings.mapType
 
     Component.onCompleted: {
-        _mapProviderFact.rawValue = "Google"
-        _mapTypeFact.rawValue = "Street Map"
+        _mapProviderFact.rawValue = "CARTO"
+        _mapTypeFact.rawValue = "Dark Matter"
     }
 
     QGCLabel {
@@ -25,6 +25,6 @@ SettingsGroupLayout {
 
     QGCLabel {
         Layout.fillWidth:   true
-        text:               qsTr("Google Street Map")
+        text:               qsTr("CARTO Dark Matter")
     }
 }
