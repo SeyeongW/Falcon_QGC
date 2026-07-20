@@ -13,6 +13,27 @@ Item {
 
     readonly property string noGPS:         qsTr("NO GPS")
     readonly property real   indicatorValueWidth:   ScreenTools.defaultFontPixelWidth * 7
+    readonly property bool   aircraftCompactMode: width < 1400 || height < 800
+    readonly property bool   aircraftLargeMode: width >= 2200 && height >= 1200
+    readonly property real   aircraftPanelResponsiveWidth: aircraftLargeMode
+                                                               ? clamp(width * 0.16, 420, 560)
+                                                               : aircraftCompactMode
+                                                                   ? clamp(width * 0.20, 220, 280)
+                                                                   : clamp(width * 0.18, 300, 420)
+    readonly property real   aircraftPanelResponsiveHeight: Math.min(
+                                                                       aircraftPanelResponsiveWidth * 1.05,
+                                                                       height * (aircraftCompactMode ? 0.38 : 0.46)
+                                                                   )
+    readonly property real   aircraftTitlePixelSize: clamp(
+                                                        aircraftPanelResponsiveWidth * 0.045,
+                                                        aircraftCompactMode ? 12 : 14,
+                                                        aircraftLargeMode ? 22 : 19
+                                                    )
+    readonly property real   aircraftReadoutPixelSize: clamp(
+                                                          aircraftPanelResponsiveWidth * 0.035,
+                                                          aircraftCompactMode ? 10 : 12,
+                                                          aircraftLargeMode ? 18 : 15
+                                                      )
 
     property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
     property real   _indicatorDiameter:     ScreenTools.defaultFontPixelWidth * 18
@@ -33,6 +54,10 @@ Item {
     readonly property color  _falconBlue:   "#1D4ED8"
     readonly property color  _falconMint:   "#5796B4"
 
+    function clamp(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, value))
+    }
+
     function secondsToHHMMSS(timeS) {
         var sec_num = parseInt(timeS, 10);
         var hours   = Math.floor(sec_num / 3600);
@@ -52,7 +77,9 @@ Item {
     }
 
     component TelemetryCorner: Column {
-        property var values: []
+        property var  values: []
+        property real labelFontPixelSize: ScreenTools.defaultFontPixelHeight * 0.6
+        property real valueFontPixelSize: ScreenTools.defaultFontPixelHeight * 0.72
 
         spacing: ScreenTools.defaultFontPixelHeight * 0.1
 
@@ -67,7 +94,7 @@ Item {
                     text:             modelData.label
                     color:            _falconMint
                     font.bold:        false
-                    font.pointSize:   ScreenTools.smallFontPointSize * 0.85
+                    font.pixelSize:   labelFontPixelSize
                 }
 
                 QGCLabel {
@@ -75,7 +102,7 @@ Item {
                     text:             telemetryValue(modelData.fact, modelData.showUnits)
                     color:            "white"
                     font.bold:        false
-                    font.pointSize:   ScreenTools.smallFontPointSize
+                    font.pixelSize:   valueFontPixelSize
                 }
             }
         }
@@ -92,7 +119,7 @@ Item {
         topEdgeLeftInset:       parentToolInsets.topEdgeLeftInset
         topEdgeCenterInset:     compassArrowIndicator.y + compassArrowIndicator.height
         topEdgeRightInset:      parentToolInsets.topEdgeRightInset
-        bottomEdgeLeftInset:    parent.height - compassBackground.y
+        bottomEdgeLeftInset:    parentToolInsets.bottomEdgeLeftInset
         bottomEdgeCenterInset:  parentToolInsets.bottomEdgeCenterInset
         bottomEdgeRightInset:   parentToolInsets.bottomEdgeRightInset
     }
@@ -311,140 +338,476 @@ Item {
         anchors.horizontalCenter:   parent.horizontalCenter
     }
 
-    Rectangle {
-        id:                     compassBackground
-        anchors.bottom:         parent.bottom
-        anchors.bottomMargin:   0
-        anchors.left:           parent.left
-        anchors.leftMargin:     _toolsMargin + parentToolInsets.leftEdgeBottomInset
-        width:                  ScreenTools.defaultFontPixelWidth * 18
-        height:                 attitudeIndicator.height * 1.2
-        radius:                 6
-        color:                  Qt.rgba(0.03, 0.08, 0.14, 0.88)
-        border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
-        border.width:           1
+    //-------------------------------------------------------------------------
+    //-- Draggable aircraft and flight-information panel
+    //   Uses live SERVO_OUTPUT_RAW values when connected and sits directly
+    //   above the bottom-right Fly View bar.
+    Item {
+        id:                     aircraftPanelBounds
+        x:                      0
+        y:                      parentToolInsets.topEdgeRightInset + _toolsMargin
+        width:                  parent ? parent.width : 0
+        height:                 parent ? Math.max(0, parent.height - parentToolInsets.bottomEdgeRightInset - y) : 0
 
-        Rectangle {
-            id:                     compassBezel
-            anchors.centerIn:       parent
-            width:                  height
-            height:                 parent.height * 0.42
-            radius:                 height / 2
-            border.color:           _falconMint
-            border.width:           1
-            color:                  Qt.rgba(0,0,0,0)
-        }
-
-        Rectangle {
-            id:                         northLabelBackground
-            anchors.top:                compassBezel.top
-            anchors.topMargin:          -height / 2
-            anchors.horizontalCenter:   compassBezel.horizontalCenter
-            width:                      northLabel.contentWidth * 1.5
-            height:                     northLabel.contentHeight * 1.5
-            radius:                     ScreenTools.defaultFontPixelWidth  * 0.25
-            color:                      _falconPanel
-
-            QGCLabel {
-                id:                 northLabel
-                anchors.centerIn:   parent
-                text:               "N"
-                color:              "white"
-                font.pointSize:     ScreenTools.smallFontPointSize
+        onWidthChanged: {
+            if (aircraftFlightPanelContainer) {
+                aircraftFlightPanelContainer._adjustPositionForGeometry()
             }
         }
-
-        Image {
-            id:                 headingNeedle
-            anchors.centerIn:   compassBezel
-            height:             compassBezel.height * 0.75
-            width:              height
-            source:             "/custom/img/falcon_tailsitter.svg"
-            fillMode:           Image.PreserveAspectFit
-            mipmap:             true
-            transform: [
-                Rotation {
-                    origin.x:   headingNeedle.width  / 2
-                    origin.y:   headingNeedle.height / 2
-                    angle:      _heading
-                }]
-        }
-
-        Rectangle {
-            id:                         headingLabelBackground
-            anchors.top:                compassBezel.bottom
-            anchors.topMargin:          -height / 2
-            anchors.horizontalCenter:   compassBezel.horizontalCenter
-            width:                      headingLabel.contentWidth * 1.5
-            height:                     headingLabel.contentHeight * 1.5
-            radius:                     ScreenTools.defaultFontPixelWidth  * 0.25
-            color:                      _falconPanel
-
-            QGCLabel {
-                id:                 headingLabel
-                anchors.centerIn:   parent
-                text:               _heading
-                color:              "white"
-                font.pointSize:     ScreenTools.smallFontPointSize
+        onHeightChanged: {
+            if (aircraftFlightPanelContainer) {
+                aircraftFlightPanelContainer._adjustPositionForGeometry()
             }
-        }
-
-        TelemetryCorner {
-            anchors.left:           parent.left
-            anchors.top:            parent.top
-            anchors.margins:        _toolsMargin
-            values: [
-                { label: qsTr("ALT"), fact: _activeVehicle ? _activeVehicle.altitudeRelative : null, showUnits: true }
-            ]
-        }
-
-        TelemetryCorner {
-            anchors.right:          parent.right
-            anchors.top:            parent.top
-            anchors.margins:        _toolsMargin
-            values: [
-                { label: qsTr("CLIMB"), fact: _activeVehicle ? _activeVehicle.climbRate : null,   showUnits: true },
-                { label: qsTr("GND"),   fact: _activeVehicle ? _activeVehicle.groundSpeed : null, showUnits: true }
-            ]
-        }
-
-        TelemetryCorner {
-            anchors.left:           parent.left
-            anchors.bottom:         parent.bottom
-            anchors.margins:        _toolsMargin
-            values: [
-                { label: qsTr("AIR"), fact: _activeVehicle ? _activeVehicle.airSpeed : null,    showUnits: true },
-                { label: qsTr("THR"), fact: _activeVehicle ? _activeVehicle.throttlePct : null, showUnits: true }
-            ]
-        }
-
-        TelemetryCorner {
-            anchors.right:          parent.right
-            anchors.bottom:         parent.bottom
-            anchors.margins:        _toolsMargin
-            values: [
-                { label: qsTr("TIME"), fact: _activeVehicle ? _activeVehicle.flightTime : null, showUnits: false }
-            ]
         }
     }
 
-    Rectangle {
-        id:                     attitudeIndicator
-        anchors.top:            compassArrowIndicator.bottom
-        anchors.topMargin:      _toolsMargin
-        anchors.horizontalCenter: parent.horizontalCenter
-        height:                 ScreenTools.defaultFontPixelHeight * 6
-        width:                  height
-        radius:                 height * 0.5
-        color:                  Qt.rgba(0.03, 0.08, 0.14, 0.88)
-        border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
-        border.width:           1
+    MovablePanel {
+        id:                     aircraftFlightPanelContainer
+        parent:                 aircraftPanelBounds
+        x:                      0
+        y:                      0
+        width:                  aircraftPanelResponsiveWidth
+        height:                 _sectionHeight * 2 + _dividerHeight
+        movable:                true
+        resizable:              false
+        minWidth:               0
+        minHeight:              0
 
-        CustomAttitudeWidget {
-            size:               parent.height * 0.95
-            vehicle:            _activeVehicle
-            showHeading:        false
-            anchors.centerIn:   parent
+        readonly property real _dividerHeight: 1
+        readonly property real _sectionHeight: Math.max(0, Math.min(
+                                                             aircraftPanelResponsiveHeight,
+                                                             ((parent ? parent.height : 0) - _dividerHeight) / 2
+                                                         ))
+        property bool _positionInitialized: false
+        property bool _hasCustomPosition:   false
+        property bool _updatingGeometry:    false
+
+        function _defaultX() {
+            const maximumX = parent ? Math.max(0, parent.width - width) : 0
+            return clamp((parent ? parent.width : 0) - width - _toolsMargin, 0, maximumX)
+        }
+
+        function _defaultY() {
+            return parent ? Math.max(0, parent.height - height) : 0
+        }
+
+        function _resetPosition() {
+            _hasCustomPosition = false
+            _updatingGeometry = true
+            x = _defaultX()
+            y = _defaultY()
+            _updatingGeometry = false
+        }
+
+        function _adjustPositionForGeometry() {
+            if (!_positionInitialized || !parent) {
+                return
+            }
+
+            _updatingGeometry = true
+            width = Math.min(aircraftPanelResponsiveWidth, parent.width)
+            height = _sectionHeight * 2 + _dividerHeight
+            if (_hasCustomPosition) {
+                clampToParent()
+            } else {
+                x = _defaultX()
+                y = _defaultY()
+            }
+            _updatingGeometry = false
+        }
+
+        onXChanged: {
+            if (_positionInitialized && !_updatingGeometry) {
+                _hasCustomPosition = true
+            }
+        }
+        onYChanged: {
+            if (_positionInitialized && !_updatingGeometry) {
+                _hasCustomPosition = true
+            }
+        }
+        Component.onCompleted: {
+            _positionInitialized = true
+            _adjustPositionForGeometry()
+        }
+
+        Rectangle {
+            id:                     controlSurfacePanel
+            anchors.fill:           parent
+            radius:                 6
+            color:                  Qt.rgba(0.03, 0.08, 0.14, 0.92)
+            border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
+            border.width:           1
+            clip:                   true
+
+            property bool motorDemoEnabled:          false
+            property bool surfaceOutputUsesPwm:      false
+            property int  actuatorDataTimeoutMs:     1000
+            readonly property real embeddedAttitudeSize: clamp(
+                                                                  Math.min(
+                                                                      aircraftSection.width * 0.24,
+                                                                      aircraftSection.height * 0.28
+                                                                  ),
+                                                                  70,
+                                                                  130
+                                                              )
+            readonly property real embeddedAttitudeMargin: clamp(
+                                                                    Math.min(aircraftSection.width, aircraftSection.height) * 0.025,
+                                                                    6,
+                                                                    12
+                                                                )
+            property var  _servo:                    []
+            property bool _actuatorDataFresh:        false
+            property double _lastActuatorDataMs:     0
+            readonly property var  _vehicle:         _activeVehicle
+            readonly property bool _haveServo:       _servo.length >= 8 && _servo[0] > 0
+            readonly property bool _haveMotorOutputs: _channelValid(0) || _channelValid(1) || _channelValid(2)
+                                                       || _channelValid(3) || _channelValid(4)
+            readonly property bool _vehicleArmed:    !!(_vehicle && _vehicle.armed)
+            readonly property bool _communicationAvailable: !!(_vehicle && _vehicle.vehicleLinkManager
+                                                                 && !_vehicle.vehicleLinkManager.communicationLost)
+            readonly property bool _actuatorDataValid: _vehicleArmed && _communicationAvailable
+                                                        && _actuatorDataFresh && _haveMotorOutputs
+
+            on_VehicleChanged: {
+                _actuatorDataFresh = false
+                _lastActuatorDataMs = 0
+            }
+
+            Connections {
+                target: controlSurfacePanel._vehicle
+                ignoreUnknownSignals: true
+                function onServoOutputsChanged(servoValues) { controlSurfacePanel._updateActuatorData(servoValues) }
+            }
+
+            // Temporary SITL motor mapping: ch1-4 lift motors, ch5 pusher.
+            // The FL/FR/RL/RR order for ch1-4 is provisional until roll/pitch
+            // output changes and the PX4 actuator configuration are verified.
+            // TODO: Before real-aircraft deployment, verify these output functions and
+            // evaluate ACTUATOR_OUTPUT_STATUS; this panel currently uses SERVO_OUTPUT_RAW.
+            function _channelValid(ch) { return _servo.length > ch && _servo[ch] > 0 }
+            function _surfaceChannelValid(ch) {
+                return !!_vehicle && _communicationAvailable && _actuatorDataFresh
+                        && _servo.length > ch && isFinite(_servo[ch]) && _servo[ch] !== -1
+            }
+            function _surf(ch) { return _haveServo && _servo[ch] > 0 ? (_servo[ch] - 1500) / 500 : 0 }
+
+            function normalizeMotorOutput(rawValue) {
+                if (!isFinite(rawValue) || rawValue <= 0) {
+                    return 0.0
+                }
+
+                if (rawValue < 1000) {
+                    return clamp(rawValue / 1000.0, 0.0, 1.0)
+                }
+
+                return clamp((rawValue - 1000.0) / 1000.0, 0.0, 1.0)
+            }
+
+            function normalizeSurfaceOutput(rawValue) {
+                if (!isFinite(rawValue)) {
+                    return 0.0
+                }
+
+                if (surfaceOutputUsesPwm) {
+                    return clamp((rawValue - 1500.0) / 500.0, -1.0, 1.0)
+                }
+
+                return clamp(rawValue / 1000.0, -1.0, 1.0)
+            }
+
+            function _mot(ch) { return _channelValid(ch) ? normalizeMotorOutput(_servo[ch]) : 0.0 }
+
+            function _surface(ch) { return _surfaceChannelValid(ch) ? normalizeSurfaceOutput(_servo[ch]) : 0.0 }
+
+            function _updateActuatorData(servoValues) {
+                _servo = servoValues
+                _lastActuatorDataMs = Date.now()
+                _actuatorDataFresh = true
+                actuatorDataTimeoutTimer.restart()
+            }
+
+            Timer {
+                id:         actuatorDataTimeoutTimer
+                interval:   controlSurfacePanel.actuatorDataTimeoutMs
+                repeat:     false
+                onTriggered: controlSurfacePanel._actuatorDataFresh = false
+            }
+
+            // Keep the existing control-surface mock driver. Synthetic motor
+            // values are used only when motorDemoEnabled is explicitly enabled.
+            property real _t: 0
+            NumberAnimation on _t {
+                from: 0; to: Math.PI * 2; duration: 4000
+                loops: Animation.Infinite; running: !controlSurfacePanel._haveServo || controlSurfacePanel.motorDemoEnabled
+            }
+            property bool _demoFwd: true
+            Timer {
+                interval: 6000; running: !controlSurfacePanel._haveServo; repeat: true
+                onTriggered: controlSurfacePanel._demoFwd = !controlSurfacePanel._demoFwd
+            }
+            // Use the connected vehicle mode when available, otherwise the demo toggle.
+            property bool _fwdMode: _activeVehicle
+                                    ? (_activeVehicle.vtol ? _activeVehicle.vtolInFwdFlight : _activeVehicle.fixedWing)
+                                    : _demoFwd
+            readonly property real _elevatorValue: _haveServo ? _surf(1) : Math.sin(_t * 0.7)
+            readonly property real _rudderValue:   _haveServo ? _surf(3) : Math.sin(_t * 0.5)
+
+            Item {
+                id:                 aircraftSection
+                anchors.top:        parent.top
+                anchors.left:       parent.left
+                anchors.right:      parent.right
+                height:             aircraftFlightPanelContainer._sectionHeight
+            }
+
+            Item {
+                id:                     aircraftTitleArea
+                parent:                 aircraftSection
+                anchors.top:            parent.top
+                anchors.left:           parent.left
+                anchors.right:          parent.right
+                height:                 controlSurfaceTitle.implicitHeight + _toolsMargin
+
+                Row {
+                    anchors.top:              parent.top
+                    anchors.topMargin:        _toolsMargin * 0.5
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing:                  _toolsMargin
+
+                    QGCLabel {
+                        id:             controlSurfaceTitle
+                        text:           qsTr("Aircraft  ·  ") + (controlSurfacePanel._fwdMode ? qsTr("FORWARD") : qsTr("HOVER"))
+                        color:          "white"
+                        font.pixelSize: aircraftTitlePixelSize
+                    }
+
+                    QGCLabel {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text:                   controlSurfacePanel.motorDemoEnabled
+                                                    ? qsTr("DEMO")
+                                                    : controlSurfacePanel._actuatorDataValid ? qsTr("LIVE") : qsTr("NO MOTOR DATA")
+                        color:                  controlSurfacePanel.motorDemoEnabled
+                                                    ? "#FCD34D"
+                                                    : controlSurfacePanel._actuatorDataValid ? "#86EFAC" : _falconMint
+                        font.bold:              true
+                        font.pixelSize:         Math.max(8, aircraftReadoutPixelSize * 0.65)
+                    }
+                }
+
+                HoverHandler {
+                    cursorShape: Qt.SizeAllCursor
+                }
+
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    onDoubleTapped: aircraftFlightPanelContainer._resetPosition()
+                }
+            }
+
+            Item {
+                id:                     aircraftContentArea
+                parent:                 aircraftSection
+                anchors.top:            aircraftTitleArea.bottom
+                anchors.bottom:         parent.bottom
+                anchors.left:           parent.left
+                anchors.right:          parent.right
+                anchors.leftMargin:     6
+                anchors.rightMargin:    6
+                clip:                   true
+
+                ControlSurfaceWidget {
+                    id:             controlSurfaceWidget
+                    anchors.fill:   parent
+
+                    fixedWingMode:      controlSurfacePanel._fwdMode
+                    actuatorDataValid:  controlSurfacePanel.motorDemoEnabled || controlSurfacePanel._actuatorDataValid
+                    vehicleArmed:       controlSurfacePanel.motorDemoEnabled || controlSurfacePanel._vehicleArmed
+
+                    // Temporary SITL surface mapping. Verify S6/S7 independently with
+                    // roll input and the PX4 actuator configuration before finalizing it.
+                    aileronLeftDeflection:  controlSurfacePanel._surface(5)
+                    aileronRightDeflection: controlSurfacePanel._surface(6)
+                    elevatorDeflection:     controlSurfacePanel._elevatorValue
+                    rudderDeflection:       controlSurfacePanel._rudderValue
+
+                    // Temporary UI/simulation mix. Replace these bindings with the
+                    // actual left/right Ruddervator servo output channels on the aircraft.
+                    ruddervatorLeftDeflection:  clamp(controlSurfacePanel._elevatorValue + controlSurfacePanel._rudderValue, -1, 1)
+                    ruddervatorRightDeflection: clamp(controlSurfacePanel._elevatorValue - controlSurfacePanel._rudderValue, -1, 1)
+
+                    liftThrottleFL: controlSurfacePanel.motorDemoEnabled
+                                        ? 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2)
+                                        : controlSurfacePanel._actuatorDataValid ? controlSurfacePanel._mot(0) : 0
+                    liftThrottleFR: controlSurfacePanel.motorDemoEnabled
+                                        ? 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2 + 1)
+                                        : controlSurfacePanel._actuatorDataValid ? controlSurfacePanel._mot(1) : 0
+                    liftThrottleRL: controlSurfacePanel.motorDemoEnabled
+                                        ? 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2 + 2)
+                                        : controlSurfacePanel._actuatorDataValid ? controlSurfacePanel._mot(2) : 0
+                    liftThrottleRR: controlSurfacePanel.motorDemoEnabled
+                                        ? 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2 + 3)
+                                        : controlSurfacePanel._actuatorDataValid ? controlSurfacePanel._mot(3) : 0
+                    pusherThrottle: controlSurfacePanel.motorDemoEnabled
+                                        ? 0.6
+                                        : controlSurfacePanel._actuatorDataValid ? controlSurfacePanel._mot(4) : 0
+                }
+
+            }
+
+            Item {
+                id:                     embeddedAttitudeIndicator
+                parent:                 aircraftSection
+                anchors.right:          aircraftSection.right
+                anchors.bottom:         aircraftSection.bottom
+                anchors.rightMargin:    controlSurfacePanel.embeddedAttitudeMargin
+                anchors.bottomMargin:   controlSurfacePanel.embeddedAttitudeMargin
+                width:                  controlSurfacePanel.embeddedAttitudeSize
+                height:                 width
+                z:                      10
+
+                CustomAttitudeWidget {
+                    anchors.centerIn:   parent
+                    size:               parent.width
+                    vehicle:            _activeVehicle
+                    showHeading:        false
+                }
+            }
+
+            Rectangle {
+                id:                     sectionDivider
+                anchors.top:            aircraftSection.bottom
+                anchors.left:           parent.left
+                anchors.right:          parent.right
+                height:                 aircraftFlightPanelContainer._dividerHeight
+                color:                  Qt.rgba(0.34, 0.59, 0.71, 0.70)
+            }
+
+            Item {
+                id:                     flightInfoSection
+                anchors.top:            sectionDivider.bottom
+                anchors.left:           parent.left
+                anchors.right:          parent.right
+                height:                 aircraftFlightPanelContainer._sectionHeight
+
+                readonly property real _contentMargin:      clamp(Math.min(width, height) * 0.045, 8, 18)
+                readonly property real _infoFontPixelSize:  clamp(width * 0.045, 12, 20)
+                readonly property real _labelFontPixelSize: clamp(width * 0.034, 10, 16)
+                readonly property real _compassSize:        Math.min(width * 0.55, height * 0.60)
+
+                Rectangle {
+                    id:                     compassBezel
+                    anchors.centerIn:       parent
+                    width:                  flightInfoSection._compassSize
+                    height:                 width
+                    radius:                 height / 2
+                    border.color:           _falconMint
+                    border.width:           1
+                    color:                  "transparent"
+                }
+
+                Rectangle {
+                    id:                         northLabelBackground
+                    anchors.top:                compassBezel.top
+                    anchors.topMargin:          -height / 2
+                    anchors.horizontalCenter:   compassBezel.horizontalCenter
+                    width:                      northLabel.contentWidth * 1.5
+                    height:                     northLabel.contentHeight * 1.5
+                    radius:                     3
+                    color:                      _falconPanel
+
+                    QGCLabel {
+                        id:                 northLabel
+                        anchors.centerIn:   parent
+                        text:               "N"
+                        color:              "white"
+                        font.pixelSize:     clamp(compassBezel.width * 0.09, 11, 20)
+                    }
+                }
+
+                Image {
+                    id:                 headingNeedle
+                    anchors.centerIn:   compassBezel
+                    width:              compassBezel.width * 0.75
+                    height:             width
+                    source:             "/custom/img/falcon_tailsitter.svg"
+                    fillMode:           Image.PreserveAspectFit
+                    mipmap:             true
+                    transform: [
+                        Rotation {
+                            origin.x:   headingNeedle.width / 2
+                            origin.y:   headingNeedle.height / 2
+                            angle:      _heading
+                        }
+                    ]
+                }
+
+                Rectangle {
+                    id:                         headingLabelBackground
+                    anchors.top:                compassBezel.bottom
+                    anchors.topMargin:          -height / 2
+                    anchors.horizontalCenter:   compassBezel.horizontalCenter
+                    width:                      headingLabel.contentWidth * 1.5
+                    height:                     headingLabel.contentHeight * 1.5
+                    radius:                     3
+                    color:                      _falconPanel
+
+                    QGCLabel {
+                        id:                 headingLabel
+                        anchors.centerIn:   parent
+                        text:               _heading
+                        color:              "white"
+                        font.pixelSize:     clamp(compassBezel.width * 0.09, 11, 20)
+                    }
+                }
+
+                TelemetryCorner {
+                    anchors.left:           parent.left
+                    anchors.top:            parent.top
+                    anchors.margins:        flightInfoSection._contentMargin
+                    labelFontPixelSize:     flightInfoSection._labelFontPixelSize
+                    valueFontPixelSize:     flightInfoSection._infoFontPixelSize
+                    values: [
+                        { label: qsTr("ALT"), fact: _activeVehicle ? _activeVehicle.altitudeRelative : null, showUnits: true }
+                    ]
+                }
+
+                TelemetryCorner {
+                    anchors.right:          parent.right
+                    anchors.top:            parent.top
+                    anchors.margins:        flightInfoSection._contentMargin
+                    labelFontPixelSize:     flightInfoSection._labelFontPixelSize
+                    valueFontPixelSize:     flightInfoSection._infoFontPixelSize
+                    values: [
+                        { label: qsTr("CLIMB"), fact: _activeVehicle ? _activeVehicle.climbRate : null,   showUnits: true },
+                        { label: qsTr("GND"),   fact: _activeVehicle ? _activeVehicle.groundSpeed : null, showUnits: true }
+                    ]
+                }
+
+                TelemetryCorner {
+                    anchors.left:           parent.left
+                    anchors.bottom:         parent.bottom
+                    anchors.margins:        flightInfoSection._contentMargin
+                    labelFontPixelSize:     flightInfoSection._labelFontPixelSize
+                    valueFontPixelSize:     flightInfoSection._infoFontPixelSize
+                    values: [
+                        { label: qsTr("AIR"), fact: _activeVehicle ? _activeVehicle.airSpeed : null,    showUnits: true },
+                        { label: qsTr("THR"), fact: _activeVehicle ? _activeVehicle.throttlePct : null, showUnits: true }
+                    ]
+                }
+
+                TelemetryCorner {
+                    anchors.right:          parent.right
+                    anchors.bottom:         parent.bottom
+                    anchors.margins:        flightInfoSection._contentMargin
+                    labelFontPixelSize:     flightInfoSection._labelFontPixelSize
+                    valueFontPixelSize:     flightInfoSection._infoFontPixelSize
+                    values: [
+                        { label: qsTr("TIME"), fact: _activeVehicle ? _activeVehicle.flightTime : null, showUnits: false }
+                    ]
+                }
+            }
+
         }
     }
 
