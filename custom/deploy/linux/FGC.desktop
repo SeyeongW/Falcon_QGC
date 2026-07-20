@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=FGC
+GenericName=Ground Control Station
+Comment=Custom VTOL-GCS build of QGroundControl (ROS2 enabled)
+Exec=/home/seyeongw/ros2_ws/qgroundcontrol/custom/deploy/linux/run-fgc.sh
+Icon=/home/seyeongw/ros2_ws/qgroundcontrol/custom/res/icons/custom_qgroundcontrol.png
+Terminal=false
+Categories=Utility;
+StartupNotify=true
