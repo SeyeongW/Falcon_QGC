@@ -35,4 +35,3 @@ bool CustomFirmwarePlugin::hasGimbal(Vehicle* /*vehicle*/, bool &rollSupported, 
 
     return true;
 }
-

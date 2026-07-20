@@ -6,7 +6,7 @@
             "name": "mapProvider",
             "shortDesc": "Currently selected map provider for flight maps",
             "type": "string",
-            "default": "Bing",
+            "default": "Google",
             "label": "Currently selected map provider for flight maps",
             "keywords": "3d map"
         },
@@ -14,7 +14,7 @@
             "name": "mapType",
             "shortDesc": "Currently selected map type for flight maps",
             "type": "string",
-            "default": "Hybrid",
+            "default": "Street Map",
             "label": "Currently selected map type for flight maps"
         },
         {

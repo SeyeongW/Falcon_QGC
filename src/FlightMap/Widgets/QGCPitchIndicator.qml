@@ -12,6 +12,7 @@ Rectangle {
     property real _longDash:        size * 0.35
     property real _shortDash:       size * 0.25
     property real _fontSize:        ScreenTools.defaultFontPointSize * 0.75
+    property color reticleColor:    "white"
 
     height: size
     width:  size
@@ -32,7 +33,7 @@ Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: (_pitch % 10) === 0 ? _longDash : _shortDash
                     height: _reticleHeight
-                    color: "white"
+                    color: reticleColor
                     antialiasing: true
                     smooth: true
                     QGCLabel {
@@ -43,7 +44,7 @@ Rectangle {
                         font.bold:   true
                         font.pointSize: _fontSize
                         text: _pitch
-                        color: "white"
+                        color: reticleColor
                         visible: (_pitch != 0) && ((_pitch % 10) === 0)
                     }
                     QGCLabel {
@@ -54,7 +55,7 @@ Rectangle {
                         font.bold:   true
                         font.pointSize: _fontSize
                         text: _pitch
-                        color: "white"
+                        color: reticleColor
                         visible: (_pitch != 0) && ((_pitch % 10) === 0)
                     }
                 }

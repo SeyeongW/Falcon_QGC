@@ -40,6 +40,11 @@ QString OpenStreetMapProvider::_getURL(int x, int y, int zoom) const
     return _mapUrl.arg(zoom).arg(x).arg(y);
 }
 
+QString CartoDarkMapProvider::_getURL(int x, int y, int zoom) const
+{
+    return _mapUrl.arg(zoom).arg(x).arg(y);
+}
+
 QString StatkartMapProvider::_getURL(int x, int y, int zoom) const
 {
     return _mapUrl.arg(zoom).arg(y).arg(x);

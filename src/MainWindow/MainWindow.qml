@@ -167,7 +167,7 @@ ApplicationWindow {
     }
 
     function showSettingsTool(settingsPage = "") {
-        showTool(qsTr("Application Settings"), "qrc:/qml/QGroundControl/Controls/AppSettings.qml", "/res/QGCLogoWhite")
+        showTool(qsTr("Application Settings"), "qrc:/qml/QGroundControl/Controls/AppSettings.qml", "/res/QGCLogoFull.svg")
         if (settingsPage !== "") {
             toolDrawerLoader.item.showSettingsPage(settingsPage)
         }
@@ -569,7 +569,8 @@ ApplicationWindow {
     Popup {
         id:             indicatorDrawer
         x:              calcXPosition()
-        y:              ScreenTools.toolbarHeight + _margins
+        y:              flyView.visible ? mainWindow.contentItem.height - ScreenTools.toolbarHeight - _margins - height
+                                        : ScreenTools.toolbarHeight + _margins
         leftInset:      0
         rightInset:     0
         topInset:       0
