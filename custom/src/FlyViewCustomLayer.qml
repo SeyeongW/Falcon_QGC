@@ -13,24 +13,23 @@ Item {
 
     readonly property string noGPS:         qsTr("NO GPS")
     readonly property real   indicatorValueWidth:   ScreenTools.defaultFontPixelWidth * 7
-
-    readonly property bool aircraftCompactMode: width < 1400 || height < 800
-    readonly property bool aircraftLargeMode: width >= 2200 && height >= 1200
-    readonly property real aircraftPanelResponsiveWidth: aircraftLargeMode
+    readonly property bool   aircraftCompactMode: width < 1400 || height < 800
+    readonly property bool   aircraftLargeMode: width >= 2200 && height >= 1200
+    readonly property real   aircraftPanelResponsiveWidth: aircraftLargeMode
                                                                ? clamp(width * 0.16, 420, 560)
                                                                : aircraftCompactMode
                                                                    ? clamp(width * 0.20, 220, 280)
                                                                    : clamp(width * 0.18, 300, 420)
-    readonly property real aircraftPanelResponsiveHeight: Math.min(
+    readonly property real   aircraftPanelResponsiveHeight: Math.min(
                                                                        aircraftPanelResponsiveWidth * 1.05,
                                                                        height * (aircraftCompactMode ? 0.38 : 0.46)
                                                                    )
-    readonly property real aircraftTitlePixelSize: clamp(
+    readonly property real   aircraftTitlePixelSize: clamp(
                                                         aircraftPanelResponsiveWidth * 0.045,
                                                         aircraftCompactMode ? 12 : 14,
                                                         aircraftLargeMode ? 22 : 19
                                                     )
-    readonly property real aircraftReadoutPixelSize: clamp(
+    readonly property real   aircraftReadoutPixelSize: clamp(
                                                           aircraftPanelResponsiveWidth * 0.035,
                                                           aircraftCompactMode ? 10 : 12,
                                                           aircraftLargeMode ? 18 : 15
@@ -49,9 +48,22 @@ Item {
     property string _messageTitle:          ""
     property string _messageText:           ""
     property real   _toolsMargin:           ScreenTools.defaultFontPixelWidth * 0.75
+    readonly property color  _falconNavy:   "#071526"
+    readonly property color  _falconPanel:  "#0B1D33"
+    readonly property color  _falconCyan:   "#38BDF8"
+    readonly property color  _falconBlue:   "#1D4ED8"
+    readonly property color  _falconMint:   "#5796B4"
 
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value))
+    }
+
+    function _clampMissionHeader() {
+        if (!missionHeader || !missionHeader.parent) {
+            return
+        }
+        missionHeader.x = Math.max(0, Math.min(missionHeader.x, missionHeader.parent.width - missionHeader.width))
+        missionHeader.y = Math.max(0, Math.min(missionHeader.y, missionHeader.parent.height - missionHeader.height))
     }
 
     function secondsToHHMMSS(timeS) {
@@ -65,6 +77,43 @@ Item {
         return hours+':'+minutes+':'+seconds;
     }
 
+    function telemetryValue(fact, showUnits) {
+        if (!fact) {
+            return qsTr("–")
+        }
+        return fact.enumOrValueString + (showUnits && fact.units ? " " + fact.units : "")
+    }
+
+    component TelemetryCorner: Column {
+        property var values: []
+
+        spacing: ScreenTools.defaultFontPixelHeight * 0.1
+
+        Repeater {
+            model: values
+
+            Row {
+                spacing: ScreenTools.defaultFontPixelWidth * 0.35
+
+                QGCLabel {
+                    anchors.baseline: valueLabel.baseline
+                    text:             modelData.label
+                    color:            _falconMint
+                    font.bold:        false
+                    font.pointSize:   ScreenTools.smallFontPointSize * 0.85
+                }
+
+                QGCLabel {
+                    id:               valueLabel
+                    text:             telemetryValue(modelData.fact, modelData.showUnits)
+                    color:            "white"
+                    font.bold:        false
+                    font.pointSize:   ScreenTools.smallFontPointSize
+                }
+            }
+        }
+    }
+
     QGCToolInsets {
         id:                     _totalToolInsets
         leftEdgeTopInset:       parentToolInsets.leftEdgeTopInset
@@ -72,13 +121,13 @@ Item {
         leftEdgeBottomInset:    parentToolInsets.leftEdgeBottomInset
         rightEdgeTopInset:      parentToolInsets.rightEdgeTopInset
         rightEdgeCenterInset:   parentToolInsets.rightEdgeCenterInset
-        rightEdgeBottomInset:   parent.width - compassBackground.x
+        rightEdgeBottomInset:   parentToolInsets.rightEdgeBottomInset
         topEdgeLeftInset:       parentToolInsets.topEdgeLeftInset
         topEdgeCenterInset:     compassArrowIndicator.y + compassArrowIndicator.height
         topEdgeRightInset:      parentToolInsets.topEdgeRightInset
-        bottomEdgeLeftInset:    parentToolInsets.bottomEdgeLeftInset
+        bottomEdgeLeftInset:    parent.height - compassBackground.y
         bottomEdgeCenterInset:  parentToolInsets.bottomEdgeCenterInset
-        bottomEdgeRightInset:   parent.height - attitudeIndicator.y
+        bottomEdgeRightInset:   parentToolInsets.bottomEdgeRightInset
     }
 
     // This is an example of how you can use parent tool insets to position an element on the custom fly view layer
@@ -102,15 +151,102 @@ Item {
     }
 
     //-------------------------------------------------------------------------
+    //-- VTOL-GCS mission header
+    Rectangle {
+        id:                         missionHeader
+        x:                          parentToolInsets.leftEdgeTopInset + _toolsMargin
+        y:                          parentToolInsets.topEdgeLeftInset + _toolsMargin
+        width:                      ScreenTools.defaultFontPixelWidth * 38
+        height:                     ScreenTools.defaultFontPixelHeight * 4.2
+        radius:                     6
+        color:                      Qt.rgba(0.03, 0.08, 0.14, 0.90)
+        border.color:               Qt.rgba(0.22, 0.74, 0.97, 0.75)
+        border.width:               1
+
+        onWidthChanged:             _clampMissionHeader()
+        onHeightChanged:            _clampMissionHeader()
+        Component.onCompleted:      _clampMissionHeader()
+
+        RowLayout {
+            anchors.fill:           parent
+            anchors.margins:        _toolsMargin
+            spacing:                _toolsMargin
+
+            Image {
+                Layout.preferredWidth:  ScreenTools.defaultFontPixelHeight * 2.2
+                Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 2.2
+                source:                 "qrc:/Custom/res/custom_qgroundcontrol.svg"
+                fillMode:               Image.PreserveAspectFit
+                mipmap:                 true
+            }
+
+            ColumnLayout {
+                Layout.fillWidth:       true
+                spacing:                0
+
+                QGCLabel {
+                    text:               qsTr("FALCON VTOL-GCS")
+                    color:              "white"
+                    font.bold:          true
+                    font.pointSize:     ScreenTools.defaultFontPointSize
+                }
+
+                QGCLabel {
+                    text:               _activeVehicle ? qsTr("LIVE MISSION CONSOLE") : qsTr("SIMULATION CONSOLE")
+                    color:              _falconCyan
+                    font.pointSize:     ScreenTools.smallFontPointSize
+                    font.letterSpacing: 1
+                }
+            }
+
+            Rectangle {
+                Layout.preferredWidth:  ScreenTools.defaultFontPixelWidth * 7.5
+                Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.7
+                radius:                 4
+                color:                  _activeVehicle ? Qt.rgba(0.13, 0.77, 0.37, 0.18)
+                                                       : Qt.rgba(0.96, 0.62, 0.04, 0.18)
+                border.color:           _activeVehicle ? "#22C55E" : "#F59E0B"
+                border.width:           1
+
+                QGCLabel {
+                    anchors.centerIn:   parent
+                    text:               _activeVehicle ? qsTr("VEHICLE") : qsTr("STANDBY")
+                    color:              _activeVehicle ? "#86EFAC" : "#FCD34D"
+                    font.bold:          true
+                    font.pointSize:     ScreenTools.smallFontPointSize
+                }
+            }
+        }
+
+        MouseArea {
+            anchors.fill:           parent
+            acceptedButtons:        Qt.LeftButton
+            cursorShape:            Qt.SizeAllCursor
+            preventStealing:        true
+            drag.target:            missionHeader
+            drag.axis:              Drag.XAndYAxis
+            drag.minimumX:          0
+            drag.minimumY:          0
+            drag.maximumX:          missionHeader.parent ? missionHeader.parent.width - missionHeader.width : 0
+            drag.maximumY:          missionHeader.parent ? missionHeader.parent.height - missionHeader.height : 0
+
+            onReleased:             _clampMissionHeader()
+            onCanceled:             _clampMissionHeader()
+        }
+    }
+
+    //-------------------------------------------------------------------------
     //-- Heading Indicator
     Rectangle {
         id:                         compassBar
         height:                     ScreenTools.defaultFontPixelHeight * 1.5
         width:                      ScreenTools.defaultFontPixelWidth  * 50
-        anchors.bottom:             parent.bottom
-        anchors.bottomMargin:       _toolsMargin
-        color:                      "#DEDEDE"
-        radius:                     2
+        anchors.top:                parent.top
+        anchors.topMargin:          _toolsMargin
+        color:                      Qt.rgba(0.03, 0.08, 0.14, 0.88)
+        radius:                     5
+        border.color:               Qt.rgba(0.34, 0.59, 0.71, 0.62)
+        border.width:               1
         clip:                       true
         anchors.horizontalCenter:   parent.horizontalCenter
         Repeater {
@@ -126,7 +262,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 x:              visible ? ((modelData * (compassBar.width / 360)) - (width * 0.5)) : 0
                 visible:        _angle % 45 == 0
-                color:          "#75505565"
+                color:          Qt.rgba(0.75, 0.88, 1.0, 0.72)
                 font.pointSize: ScreenTools.smallFontPointSize
                 text: {
                     switch(_angle) {
@@ -148,13 +284,16 @@ Item {
         id:                         headingIndicator
         height:                     ScreenTools.defaultFontPixelHeight
         width:                      ScreenTools.defaultFontPixelWidth * 4
-        color:                      qgcPal.windowShadeDark
+        color:                      _falconMint
+        radius:                     3
+        border.color:               Qt.lighter(_falconMint, 1.18)
+        border.width:               1
         anchors.top:                compassBar.top
         anchors.topMargin:          -headingIndicator.height / 2
         anchors.horizontalCenter:   parent.horizontalCenter
         QGCLabel {
             text:                   _heading
-            color:                  qgcPal.text
+            color:                  "white"
             font.pointSize:         ScreenTools.smallFontPointSize
             anchors.centerIn:       parent
         }
@@ -173,23 +312,24 @@ Item {
 
     Rectangle {
         id:                     compassBackground
-        anchors.bottom:         attitudeIndicator.bottom
-        anchors.right:          attitudeIndicator.left
-        anchors.rightMargin:    -attitudeIndicator.width / 2
-        width:                  -anchors.rightMargin + compassBezel.width + (_toolsMargin * 2)
-        height:                 attitudeIndicator.height * 0.75
-        radius:                 2
-        color:                  qgcPal.window
+        anchors.bottom:         parent.bottom
+        anchors.bottomMargin:   0
+        anchors.left:           parent.left
+        anchors.leftMargin:     _toolsMargin + parentToolInsets.leftEdgeBottomInset
+        width:                  ScreenTools.defaultFontPixelWidth * 18
+        height:                 attitudeIndicator.height * 1.2
+        radius:                 6
+        color:                  Qt.rgba(0.03, 0.08, 0.14, 0.88)
+        border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
+        border.width:           1
 
         Rectangle {
             id:                     compassBezel
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin:     _toolsMargin
-            anchors.left:           parent.left
+            anchors.centerIn:       parent
             width:                  height
-            height:                 parent.height - (northLabelBackground.height / 2) - (headingLabelBackground.height / 2)
+            height:                 parent.height * 0.42
             radius:                 height / 2
-            border.color:           qgcPal.text
+            border.color:           _falconMint
             border.width:           1
             color:                  Qt.rgba(0,0,0,0)
         }
@@ -202,13 +342,13 @@ Item {
             width:                      northLabel.contentWidth * 1.5
             height:                     northLabel.contentHeight * 1.5
             radius:                     ScreenTools.defaultFontPixelWidth  * 0.25
-            color:                      qgcPal.windowShade
+            color:                      _falconPanel
 
             QGCLabel {
                 id:                 northLabel
                 anchors.centerIn:   parent
                 text:               "N"
-                color:              qgcPal.text
+                color:              "white"
                 font.pointSize:     ScreenTools.smallFontPointSize
             }
         }
@@ -218,9 +358,9 @@ Item {
             anchors.centerIn:   compassBezel
             height:             compassBezel.height * 0.75
             width:              height
-            source:             "/custom/img/compass_needle.svg"
+            source:             "/custom/img/falcon_tailsitter.svg"
             fillMode:           Image.PreserveAspectFit
-            sourceSize.height:  height
+            mipmap:             true
             transform: [
                 Rotation {
                     origin.x:   headingNeedle.width  / 2
@@ -237,28 +377,67 @@ Item {
             width:                      headingLabel.contentWidth * 1.5
             height:                     headingLabel.contentHeight * 1.5
             radius:                     ScreenTools.defaultFontPixelWidth  * 0.25
-            color:                      qgcPal.windowShade
+            color:                      _falconPanel
 
             QGCLabel {
                 id:                 headingLabel
                 anchors.centerIn:   parent
                 text:               _heading
-                color:              qgcPal.text
+                color:              "white"
                 font.pointSize:     ScreenTools.smallFontPointSize
             }
+        }
+
+        TelemetryCorner {
+            anchors.left:           parent.left
+            anchors.top:            parent.top
+            anchors.margins:        _toolsMargin
+            values: [
+                { label: qsTr("ALT"), fact: _activeVehicle ? _activeVehicle.altitudeRelative : null, showUnits: true }
+            ]
+        }
+
+        TelemetryCorner {
+            anchors.right:          parent.right
+            anchors.top:            parent.top
+            anchors.margins:        _toolsMargin
+            values: [
+                { label: qsTr("CLIMB"), fact: _activeVehicle ? _activeVehicle.climbRate : null,   showUnits: true },
+                { label: qsTr("GND"),   fact: _activeVehicle ? _activeVehicle.groundSpeed : null, showUnits: true }
+            ]
+        }
+
+        TelemetryCorner {
+            anchors.left:           parent.left
+            anchors.bottom:         parent.bottom
+            anchors.margins:        _toolsMargin
+            values: [
+                { label: qsTr("AIR"), fact: _activeVehicle ? _activeVehicle.airSpeed : null,    showUnits: true },
+                { label: qsTr("THR"), fact: _activeVehicle ? _activeVehicle.throttlePct : null, showUnits: true }
+            ]
+        }
+
+        TelemetryCorner {
+            anchors.right:          parent.right
+            anchors.bottom:         parent.bottom
+            anchors.margins:        _toolsMargin
+            values: [
+                { label: qsTr("TIME"), fact: _activeVehicle ? _activeVehicle.flightTime : null, showUnits: false }
+            ]
         }
     }
 
     Rectangle {
         id:                     attitudeIndicator
-        anchors.bottomMargin:   _toolsMargin + parentToolInsets.bottomEdgeRightInset
-        anchors.rightMargin:    _toolsMargin
-        anchors.bottom:         parent.bottom
-        anchors.right:          parent.right
+        anchors.top:            compassArrowIndicator.bottom
+        anchors.topMargin:      _toolsMargin
+        anchors.horizontalCenter: parent.horizontalCenter
         height:                 ScreenTools.defaultFontPixelHeight * 6
         width:                  height
         radius:                 height * 0.5
-        color:                  qgcPal.windowShade
+        color:                  Qt.rgba(0.03, 0.08, 0.14, 0.88)
+        border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
+        border.width:           1
 
         CustomAttitudeWidget {
             size:               parent.height * 0.95
@@ -269,24 +448,23 @@ Item {
     }
 
     //-------------------------------------------------------------------------
-    //-- Aircraft status panel (VTOL-GCS)
-    //   Top-down quadplane whose shape adapts to flight mode: hover shows the
-    //   spinning lift rotors, forward flight shows the pusher + control surfaces.
+    //-- Aircraft control-surface panel (from dev/daehyeon)
+    //   Uses live SERVO_OUTPUT_RAW values when connected and sits directly
+    //   above the bottom-right Fly View bar.
     Rectangle {
         id:                     controlSurfacePanel
-        anchors.top:            parent.top
+        anchors.bottom:         parent.bottom
         anchors.right:          parent.right
-        anchors.topMargin:      parentToolInsets.topEdgeRightInset + _toolsMargin
+        anchors.bottomMargin:   parentToolInsets.bottomEdgeRightInset
         anchors.rightMargin:    _toolsMargin
         width:                  aircraftPanelResponsiveWidth
         height:                 aircraftPanelResponsiveHeight
-        radius:                 4
-        color:                  qgcPal.window
-        opacity:                0.92
+        radius:                 6
+        color:                  Qt.rgba(0.03, 0.08, 0.14, 0.92)
+        border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
+        border.width:           1
 
-        // --- Source: live SERVO_OUTPUT_RAW when a vehicle is connected,
-        //     otherwise an animated mock so the panel is alive in the editor. ---
-        property var  _servo:     []      // latest SERVO_OUTPUT_RAW (ch1..16, us)
+        property var  _servo:     []
         property bool _haveServo: _servo.length >= 8 && _servo[0] > 0
 
         Connections {
@@ -295,9 +473,9 @@ Item {
             function onServoOutputsChanged(servoValues) { controlSurfacePanel._servo = servoValues }
         }
 
-        // Channel -> normalized helpers (matches custom/tools/fake_mavlink.py):
-        // ch1 aileron, ch2 elevator, ch3 pusher, ch4 rudder, ch5-8 lift motors.
-        function _surf(ch) { return _haveServo && _servo[ch] > 0 ? (_servo[ch] - 1500) / 500  : 0 }
+        // Channel mapping: ch1 aileron, ch2 elevator, ch3 pusher,
+        // ch4 rudder, ch5-8 lift motors.
+        function _surf(ch) { return _haveServo && _servo[ch] > 0 ? (_servo[ch] - 1500) / 500 : 0 }
         function _mot(ch)  { return _haveServo && _servo[ch] > 0 ? (_servo[ch] - 1000) / 1000 : 0 }
 
         // Mock driver, used only when there is no live servo telemetry.
@@ -311,9 +489,9 @@ Item {
             interval: 6000; running: !controlSurfacePanel._haveServo; repeat: true
             onTriggered: controlSurfacePanel._demoFwd = !controlSurfacePanel._demoFwd
         }
-        // Mode: real VTOL state if connected, otherwise the demo toggle.
-        property bool _fwdMode: (_activeVehicle && _activeVehicle.vtol)
-                                ? _activeVehicle.vtolInFwdFlight
+        // Use the connected vehicle mode when available, otherwise the demo toggle.
+        property bool _fwdMode: _activeVehicle
+                                ? (_activeVehicle.vtol ? _activeVehicle.vtolInFwdFlight : _activeVehicle.fixedWing)
                                 : _demoFwd
         readonly property real _elevatorValue: _haveServo ? _surf(1) : Math.sin(_t * 0.7)
         readonly property real _rudderValue:   _haveServo ? _surf(3) : Math.sin(_t * 0.5)
@@ -331,7 +509,7 @@ Item {
                 anchors.topMargin:          _toolsMargin * 0.5
                 anchors.horizontalCenter:   parent.horizontalCenter
                 text:                       qsTr("Aircraft  ·  ") + (controlSurfacePanel._fwdMode ? qsTr("FORWARD") : qsTr("HOVER"))
-                color:                      qgcPal.text
+                color:                      "white"
                 font.pixelSize:             aircraftTitlePixelSize
             }
         }
@@ -395,7 +573,6 @@ Item {
                     font.pixelSize: aircraftReadoutPixelSize
                     font.bold: true
                 }
-
                 QGCLabel {
                     text: "L RV " + (controlSurfaceWidget.ruddervatorLeftDeflection >= 0 ? "+" : "") + controlSurfaceWidget.ruddervatorLeftDeflection.toFixed(2)
                     color: controlSurfaceWidget.ruddervatorLeftColor
@@ -411,5 +588,36 @@ Item {
                 }
             }
         }
+    }
+
+    //-------------------------------------------------------------------------
+    //-- Mission phase orchestrator panel (VTOL-GCS, ROS build only)
+    //   Sequential phase checklist with live progress / section text, driven by
+    //   RosBridge (command/run_phase <-> command/status). Top-right corner.
+    Loader {
+        id:                     missionPhaseLoader
+        active:                 (typeof customRosEnabled !== 'undefined') && customRosEnabled
+        source:                 active ? "qrc:/qml/Custom/Widgets/MissionPhasePanel.qml" : ""
+        anchors.top:            parent.top
+        anchors.right:          parent.right
+        anchors.topMargin:      parentToolInsets.topEdgeRightInset + _toolsMargin
+        anchors.rightMargin:    _toolsMargin
+        width:                  ScreenTools.defaultFontPixelWidth * 32
+    }
+
+    //-------------------------------------------------------------------------
+    //-- Recognition video panel (VTOL-GCS, ROS build only)
+    //   Loaded by URL and gated on `customRosEnabled` (set from CustomPlugin)
+    //   so non-ROS builds never try to import Custom.Ros.
+    Loader {
+        id:                     rosVideoLoader
+        active:                 (typeof customRosEnabled !== 'undefined') && customRosEnabled
+        source:                 active ? "qrc:/qml/Custom/Widgets/RosVideoPanel.qml" : ""
+        anchors.left:           parent.left
+        anchors.bottom:         parent.bottom
+        anchors.leftMargin:     _toolsMargin
+        anchors.bottomMargin:   _toolsMargin + parentToolInsets.bottomEdgeLeftInset
+        width:                  ScreenTools.defaultFontPixelWidth * 34
+        height:                 ScreenTools.defaultFontPixelHeight * 15
     }
 }

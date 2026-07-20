@@ -36,10 +36,13 @@ endif()
 # Feature Set Customization
 # ----------------------------------------------------------------------------
 
-# Build a single flight stack by disabling APM support
-set(QGC_DISABLE_APM_MAVLINK ON CACHE BOOL "Disable APM Dialect" FORCE)
-set(QGC_DISABLE_APM_PLUGIN ON CACHE BOOL "Disable APM Plugin" FORCE)
-set(QGC_DISABLE_APM_PLUGIN_FACTORY ON CACHE BOOL "Disable APM Plugin Factory" FORCE)
+# Keep BOTH flight stacks like stock QGC. We currently test on ArduPilot SITL and
+# target PX4 later, so APM support must stay ON (disabling it breaks connecting an
+# ArduPilot vehicle: parameters, arming, modes and the setup menus all misbehave).
+set(QGC_DISABLE_APM_MAVLINK OFF CACHE BOOL "Disable APM Dialect" FORCE)
+set(QGC_DISABLE_APM_PLUGIN OFF CACHE BOOL "Disable APM Plugin" FORCE)
+set(QGC_DISABLE_APM_PLUGIN_FACTORY OFF CACHE BOOL "Disable APM Plugin Factory" FORCE)
 
-# Implement custom PX4 plugin factory
+# The custom PX4 plugin factory (CustomFirmwarePluginFactory) replaces the stock
+# PX4 one; APM is still handled by its own (now-enabled) factory.
 set(QGC_DISABLE_PX4_PLUGIN_FACTORY ON CACHE BOOL "Disable PX4 Plugin Factory" FORCE)

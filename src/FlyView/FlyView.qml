@@ -61,11 +61,10 @@ Item {
 
     QGCToolInsets {
         id:                     _toolInsets
-        topEdgeLeftInset:       toolbar.height
-        topEdgeCenterInset:     topEdgeLeftInset
-        topEdgeRightInset:      topEdgeLeftInset
+        bottomEdgeLeftInset:    Math.max(toolbar.height, _pipView.bottomEdgeLeftInset)
+        bottomEdgeCenterInset:  toolbar.height
+        bottomEdgeRightInset:   toolbar.height
         leftEdgeBottomInset:    _pipView.leftEdgeBottomInset
-        bottomEdgeLeftInset:    _pipView.bottomEdgeLeftInset
     }
 
     Item {
@@ -112,7 +111,7 @@ Item {
             anchors.left:           parent.left
             anchors.right:          guidedValueSlider.visible ? guidedValueSlider.left : parent.right
             anchors.margins:        _widgetMargin
-            anchors.topMargin:      toolbar.height + _widgetMargin
+            anchors.bottomMargin:   toolbar.height + _widgetMargin
             z:                      _fullItemZorder + 2
             parentToolInsets:       _toolInsets
             mapControl:             _mapControl
@@ -152,7 +151,7 @@ Item {
             anchors.right:      parent.right
             anchors.top:        parent.top
             anchors.bottom:     parent.bottom
-            anchors.topMargin:  toolbar.height
+            anchors.bottomMargin: toolbar.height
             z:                  QGroundControl.zOrderTopMost
             visible:            false
         }
@@ -183,6 +182,7 @@ Item {
 
     FlyViewToolBar {
         id:                 toolbar
+        anchors.bottom:     parent.bottom
         guidedValueSlider:  _guidedValueSlider
         visible:            !QGroundControl.videoManager.fullScreen
     }

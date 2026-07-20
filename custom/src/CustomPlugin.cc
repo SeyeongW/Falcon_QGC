@@ -6,9 +6,18 @@
 #include "QGCPalette.h"
 #include "QGCMAVLink.h"
 #include "AppSettings.h"
+#include "FlightMapSettings.h"
+#include "FlyViewSettings.h"
+#include "SettingsManager.h"
+#include "CustomGeoclueSource.h"
+#ifdef QGC_ENABLE_ROS
+#include "RosBridge.h"
+#include "RosVideoView.h"
+#endif
 
 #include <QtCore/QApplicationStatic>
 #include <QtQml/QQmlApplicationEngine>
+#include <QtQml/QQmlContext>
 #include <QtQml/QQmlFile>
 
 QGC_LOGGING_CATEGORY(CustomLog, "Custom.CustomPlugin")
@@ -88,6 +97,22 @@ void CustomPlugin::adjustSettingMetaData(const QString& settingsGroup, FactMetaD
             return;
         } else if (metaData.name() == AppSettings::offlineEditingVehicleClassName) {
             metaData.setRawDefaultValue(QGCMAVLink::VehicleClassMultiRotor);
+            userVisible = false;
+            return;
+        }
+    } else if (settingsGroup == FlyViewSettings::settingsGroup) {
+        // Default the Fly View map to keep the vehicle centered on screen.
+        if (metaData.name() == FlyViewSettings::keepMapCenteredOnVehicleName) {
+            metaData.setRawDefaultValue(true);
+            return;
+        }
+    } else if (settingsGroup == FlightMapSettings::settingsGroup) {
+        if (metaData.name() == FlightMapSettings::mapProviderName) {
+            metaData.setRawDefaultValue(QStringLiteral("CARTO"));
+            userVisible = false;
+            return;
+        } else if (metaData.name() == FlightMapSettings::mapTypeName) {
+            metaData.setRawDefaultValue(QStringLiteral("Dark Matter"));
             userVisible = false;
             return;
         }
@@ -242,10 +267,10 @@ void CustomPlugin::paletteOverride(const QString &colorName, QGCPalette::Palette
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#000000");
     } else if (colorName == QStringLiteral("brandingPurple")) {
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#4a2c6d");
-        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#4a2c6d");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#4a2c6d");
-        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#4a2c6d");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#5796B4");
+        colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#5796B4");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#5796B4");
+        colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#5796B4");
     } else if (colorName == QStringLiteral("brandingBlue")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#6045c5");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#48d6ff");
@@ -254,8 +279,24 @@ void CustomPlugin::paletteOverride(const QString &colorName, QGCPalette::Palette
     }
 }
 
+QGeoPositionInfoSource* CustomPlugin::createPositionSource(QObject* parent)
+{
+    // Stock position handling (return nullptr -> QGC uses its default source with
+    // the normal accuracy gate). The coarse geoclue "laptop GPS" override
+    // (CustomGeoclueSource) forced a low-accuracy fix to be accepted, which made
+    // the map auto-center on the ground station instead of the vehicle's spawn/
+    // home. Disabled by default; re-enable by returning CustomGeoclueSource.
+    Q_UNUSED(parent);
+    return nullptr;
+}
+
 QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
 {
+    if (FlightMapSettings* const flightMapSettings = SettingsManager::instance()->flightMapSettings()) {
+        flightMapSettings->mapProvider()->setRawValue(QStringLiteral("CARTO"));
+        flightMapSettings->mapType()->setRawValue(QStringLiteral("Dark Matter"));
+    }
+
     _qmlEngine = QGCCorePlugin::createQmlApplicationEngine(parent);
     _qmlEngine->addImportPath("qrc:/qml/Custom/Widgets");
     _qmlEngine->addImportPath("qrc:/qml/Custom/Plan");
@@ -263,6 +304,17 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
 
     _selector = new CustomOverrideInterceptor();
     _qmlEngine->addUrlInterceptor(_selector);
+
+    // VTOL-GCS: gate ROS-only QML (video panel) so non-ROS builds don't try to
+    // import Custom.Ros. Always defined; true only when the bridge is compiled in.
+#ifdef QGC_ENABLE_ROS
+    _qmlEngine->rootContext()->setContextProperty("customRosEnabled", true);
+    // Expose the ROS2 bridge singleton and the video item (import Custom.Ros).
+    qmlRegisterSingletonInstance("Custom.Ros", 1, 0, "RosBridge", RosBridge::instance());
+    qmlRegisterType<RosVideoView>("Custom.Ros", 1, 0, "RosVideoView");
+#else
+    _qmlEngine->rootContext()->setContextProperty("customRosEnabled", false);
+#endif
 
     return _qmlEngine;
 }

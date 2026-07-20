@@ -13,6 +13,7 @@ class CustomOptions;
 class CustomPlugin;
 class CustomSettings;
 class QQmlApplicationEngine;
+class QGeoPositionInfoSource;
 
 Q_DECLARE_LOGGING_CATEGORY(CustomLog)
 
@@ -73,6 +74,9 @@ public:
     void paletteOverride(const QString &colorName, QGCPalette::PaletteColorInfo_t &colorInfo) final;
     /// We override this so we can get access to QQmlApplicationEngine and use it to register our qml module
     QQmlApplicationEngine *createQmlApplicationEngine(QObject *parent) final;
+    /// Wraps the platform GPS source so QGC accepts a coarse "laptop GPS" (geoclue) fix
+    /// and can center the map on the ground station when no vehicle GPS is available.
+    QGeoPositionInfoSource *createPositionSource(QObject *parent) final;
 
     /// Adds the Perimeter Scan item to the complex-item menu.
     QVariantList complexMissionItemNames(Vehicle *vehicle) final;
