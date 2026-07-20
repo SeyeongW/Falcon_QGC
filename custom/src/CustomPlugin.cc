@@ -108,11 +108,11 @@ void CustomPlugin::adjustSettingMetaData(const QString& settingsGroup, FactMetaD
         }
     } else if (settingsGroup == FlightMapSettings::settingsGroup) {
         if (metaData.name() == FlightMapSettings::mapProviderName) {
-            metaData.setRawDefaultValue(QStringLiteral("CARTO"));
+            metaData.setRawDefaultValue(QStringLiteral("Google"));
             userVisible = false;
             return;
         } else if (metaData.name() == FlightMapSettings::mapTypeName) {
-            metaData.setRawDefaultValue(QStringLiteral("Dark Matter"));
+            metaData.setRawDefaultValue(QStringLiteral("Satellite"));
             userVisible = false;
             return;
         }
@@ -293,8 +293,8 @@ QGeoPositionInfoSource* CustomPlugin::createPositionSource(QObject* parent)
 QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
 {
     if (FlightMapSettings* const flightMapSettings = SettingsManager::instance()->flightMapSettings()) {
-        flightMapSettings->mapProvider()->setRawValue(QStringLiteral("CARTO"));
-        flightMapSettings->mapType()->setRawValue(QStringLiteral("Dark Matter"));
+        flightMapSettings->mapProvider()->setRawValue(QStringLiteral("Google"));
+        flightMapSettings->mapType()->setRawValue(QStringLiteral("Satellite"));
     }
 
     _qmlEngine = QGCCorePlugin::createQmlApplicationEngine(parent);
