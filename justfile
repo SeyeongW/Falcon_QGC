@@ -35,7 +35,8 @@ submodules:
 configure: submodules
     {{qt_dir}}/bin/qt-cmake -B {{build_dir}} -G Ninja \
         -DCMAKE_BUILD_TYPE={{build_type}} \
-        -DQGC_BUILD_TESTING=ON
+        -DQGC_BUILD_TESTING=ON \
+        -DQGC_ENABLE_ROS=ON
 
 # Build the project
 build:
@@ -45,7 +46,8 @@ build:
 release:
     {{qt_dir}}/bin/qt-cmake -B {{build_dir}} -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
-        -DQGC_BUILD_TESTING=OFF
+        -DQGC_BUILD_TESTING=OFF \
+        -DQGC_ENABLE_ROS=ON
     cmake --build {{build_dir}} --config Release --parallel
 
 # Clean build directory (forwards to tools/clean.py; pass --cache, --all, --dry-run)
