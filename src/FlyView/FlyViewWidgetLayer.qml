@@ -38,15 +38,15 @@ Item {
 
     QGCToolInsets {
         id:                     _totalToolInsets
-        leftEdgeTopInset:       toolStrip.leftEdgeTopInset
-        leftEdgeCenterInset:    toolStrip.leftEdgeCenterInset
+        leftEdgeTopInset:       parentToolInsets.leftEdgeTopInset
+        leftEdgeCenterInset:    parentToolInsets.leftEdgeCenterInset
         leftEdgeBottomInset:    virtualJoystickMultiTouch.visible ? virtualJoystickMultiTouch.leftEdgeBottomInset : parentToolInsets.leftEdgeBottomInset
-        rightEdgeTopInset:      topRightPanel.rightEdgeTopInset
+        rightEdgeTopInset:      Math.max(toolStrip.rightEdgeTopInset, topRightPanel.rightEdgeTopInset)
         rightEdgeCenterInset:   topRightPanel.rightEdgeCenterInset
         rightEdgeBottomInset:   bottomRightRowLayout.rightEdgeBottomInset
-        topEdgeLeftInset:       toolStrip.topEdgeLeftInset
+        topEdgeLeftInset:       parentToolInsets.topEdgeLeftInset
         topEdgeCenterInset:     mapScale.topEdgeCenterInset
-        topEdgeRightInset:      topRightPanel.topEdgeRightInset
+        topEdgeRightInset:      Math.max(toolStrip.topEdgeRightInset, topRightPanel.topEdgeRightInset)
         bottomEdgeLeftInset:    virtualJoystickMultiTouch.visible ? virtualJoystickMultiTouch.bottomEdgeLeftInset : parentToolInsets.bottomEdgeLeftInset
         bottomEdgeCenterInset:  bottomRightRowLayout.bottomEdgeCenterInset
         bottomEdgeRightInset:   virtualJoystickMultiTouch.visible ? virtualJoystickMultiTouch.bottomEdgeRightInset : bottomRightRowLayout.bottomEdgeRightInset
@@ -140,10 +140,12 @@ Item {
 
     FlyViewToolStrip {
         id:                     toolStrip
-        anchors.left:           parent.left
+        anchors.right:          parent.right
         anchors.top:            parent.top
         z:                      QGroundControl.zOrderWidgets
         maxHeight:              parent.height - y - parentToolInsets.bottomEdgeLeftInset - _toolsMargin
+        maxWidth:               parent.width
+        horizontal:             true
         visible:                !QGroundControl.videoManager.fullScreen
 
         onDisplayPreFlightChecklist: {
@@ -153,9 +155,8 @@ Item {
             preFlightChecklistLoader.item.open()
         }
 
-        property real topEdgeLeftInset:     visible ? y + height : 0
-        property real leftEdgeTopInset:     visible ? x + width : 0
-        property real leftEdgeCenterInset:  leftEdgeTopInset
+        property real topEdgeRightInset:    visible ? y + height : 0
+        property real rightEdgeTopInset:    visible ? parent.width - x : 0
     }
 
     VehicleWarnings {
@@ -165,8 +166,8 @@ Item {
 
     MapScale {
         id:                 mapScale
-        anchors.left:       toolStrip.right
-        anchors.leftMargin: _toolsMargin
+        anchors.right:      toolStrip.left
+        anchors.rightMargin: _toolsMargin
         anchors.top:        parent.top
         mapControl:         _mapControl
         autoHide:           true

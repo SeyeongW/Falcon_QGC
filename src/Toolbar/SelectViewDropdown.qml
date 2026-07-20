@@ -21,7 +21,8 @@ ToolIndicatorPage {
                 implicitHeight: root._toolButtonHeight
                 Layout.fillWidth: true
                 text: qsTr("Fly")
-                imageResource: "/res/FlyingPaperPlane.svg"
+                imageResource: "/custom/img/falcon_menu_fly.svg"
+                preserveImageColors: true
                 onClicked: {
                     if (mainWindow.allowViewSwitch()) {
                         mainWindow.closeIndicatorDrawer()
@@ -35,7 +36,8 @@ ToolIndicatorPage {
                 implicitHeight: root._toolButtonHeight
                 Layout.fillWidth: true
                 text: qsTr("Plan")
-                imageResource: "/qmlimages/Plan.svg"
+                imageResource: "/custom/img/falcon_menu_plan.svg"
+                preserveImageColors: true
                 onClicked: {
                     if (mainWindow.allowViewSwitch()) {
                         mainWindow.closeIndicatorDrawer()
@@ -49,7 +51,8 @@ ToolIndicatorPage {
                 implicitHeight: root._toolButtonHeight
                 Layout.fillWidth: true
                 text: qsTr("Analyze")
-                imageResource: "/qmlimages/Analyze.svg"
+                imageResource: "/custom/img/falcon_menu_analyze.svg"
+                preserveImageColors: true
                 visible: QGroundControl.corePlugin.showAdvancedUI
                 onClicked: {
                     if (mainWindow.allowViewSwitch()) {
@@ -65,7 +68,8 @@ ToolIndicatorPage {
                 implicitHeight: root._toolButtonHeight
                 Layout.fillWidth: true
                 text: qsTr("Configure")
-                imageResource: "/res/GearWithPaperPlane.svg"
+                imageResource: "/custom/img/falcon_menu_configure.svg"
+                preserveImageColors: true
                 onClicked: {
                     if (mainWindow.allowViewSwitch()) {
                         mainWindow.closeIndicatorDrawer()
@@ -97,7 +101,8 @@ ToolIndicatorPage {
                 implicitHeight: root._toolButtonHeight
                 Layout.fillWidth: true
                 text: qsTr("Close")
-                imageResource: "/res/OpenDoor.svg"
+                imageResource: "/custom/img/falcon_menu_close.svg"
+                preserveImageColors: true
                 onClicked: {
                     if (mainWindow.allowViewSwitch()) {
                         mainWindow.closeIndicatorDrawer()

@@ -41,27 +41,22 @@ Item {
                 width:  leftPanelLayout.implicitWidth
                 height: parent.height
 
-                // Gradient background behind Q button and main status indicator
+                // Falcon signature color behind the logo and main status indicator
                 Rectangle {
-                    id:         gradientBackground
+                    id:         signatureBackground
                     height:     parent.height
                     width:      mainStatusLayout.width
+                    color:      _mainStatusBGColor
                     opacity:    qgcPal.windowTransparent.a
-
-                    gradient: Gradient {
-                        orientation: Gradient.Horizontal
-                        GradientStop { position: 0; color: _mainStatusBGColor }
-                        //GradientStop { position: qgcButton.x + qgcButton.width; color: _mainStatusBGColor }
-                        GradientStop { position: 1; color: qgcPal.window }
-                    }
                 }
 
-                // Standard toolbar background to the right of the gradient
+                // Falcon signature color across the remainder of the left panel
                 Rectangle {
-                    anchors.left:   gradientBackground.right
+                    anchors.left:   signatureBackground.right
                     anchors.right:  parent.right
                     height:         parent.height
-                    color:          qgcPal.windowTransparent
+                    color:          _mainStatusBGColor
+                    opacity:        qgcPal.windowTransparent.a
                 }
 
                 RowLayout {
@@ -80,14 +75,12 @@ Item {
                             Layout.fillHeight:  true
                             icon.source:        "/res/QGCLogoFull.svg"
                             logo:               true
+                            logoHeight:         height * 0.9
+                            logoWidthFactor:    652 / 383
+                            logoVerticalCenterOffset: 0
                             onClicked:          mainWindow.showToolSelectDialog()
                         }
 
-                        MainStatusIndicator {
-                            id:                 mainStatusIndicator
-                            objectName:         "toolbar_mainStatusIndicator"
-                            Layout.fillHeight:  true
-                        }
                     }
 
                     QGCButton {
@@ -112,7 +105,8 @@ Item {
 
                 Rectangle {
                     anchors.fill:   parent
-                    color:          qgcPal.windowTransparent
+                    color:          _mainStatusBGColor
+                    opacity:        qgcPal.windowTransparent.a
                 }
 
                 GuidedActionConfirm {
@@ -132,7 +126,8 @@ Item {
 
                 Rectangle {
                     anchors.fill:   parent
-                    color:          qgcPal.windowTransparent
+                    color:          _mainStatusBGColor
+                    opacity:        qgcPal.windowTransparent.a
                 }
 
                 FlyViewToolBarIndicators {
@@ -143,12 +138,22 @@ Item {
         }
     }
 
+    MainStatusIndicator {
+        id:                         mainStatusIndicator
+        objectName:                 "toolbar_mainStatusIndicator"
+        anchors.horizontalCenter:   parent.horizontalCenter
+        anchors.verticalCenter:     parent.verticalCenter
+        height:                     parent.height
+        visible:                    !guidedActionConfirm.visible
+        z:                          1
+    }
+
     // The guided action message display is outside of the GuidedActionConfirm control so that it doesn't end up as
     // part of the Flickable
     Rectangle {
         id:                         guidedActionMessageDisplay
-        anchors.top:                control.bottom
-        anchors.topMargin:          _margins
+        anchors.bottom:             control.top
+        anchors.bottomMargin:       _margins
         x:                          control.mapFromItem(guidedActionConfirm.parent, guidedActionConfirm.x, 0).x + (guidedActionConfirm.width - guidedActionMessageDisplay.width) / 2
         width:                      messageLabel.contentWidth + (_margins * 2)
         height:                     messageLabel.contentHeight + (_margins * 2)

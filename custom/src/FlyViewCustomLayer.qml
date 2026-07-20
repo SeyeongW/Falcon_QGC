@@ -52,6 +52,43 @@ Item {
         return hours+':'+minutes+':'+seconds;
     }
 
+    function telemetryValue(fact, showUnits) {
+        if (!fact) {
+            return qsTr("–")
+        }
+        return fact.enumOrValueString + (showUnits && fact.units ? " " + fact.units : "")
+    }
+
+    component TelemetryCorner: Column {
+        property var values: []
+
+        spacing: -ScreenTools.defaultFontPixelHeight * 0.3
+
+        Repeater {
+            model: values
+
+            Row {
+                spacing: ScreenTools.defaultFontPixelWidth * 0.5
+
+                QGCLabel {
+                    anchors.baseline: valueLabel.baseline
+                    text:             modelData.label
+                    color:            _falconMint
+                    font.bold:        true
+                    font.pointSize:   ScreenTools.smallFontPointSize
+                }
+
+                QGCLabel {
+                    id:               valueLabel
+                    text:             telemetryValue(modelData.fact, modelData.showUnits)
+                    color:            "white"
+                    font.bold:        true
+                    font.pointSize:   ScreenTools.defaultFontPointSize
+                }
+            }
+        }
+    }
+
     QGCToolInsets {
         id:                     _totalToolInsets
         leftEdgeTopInset:       parentToolInsets.leftEdgeTopInset
@@ -59,13 +96,13 @@ Item {
         leftEdgeBottomInset:    parentToolInsets.leftEdgeBottomInset
         rightEdgeTopInset:      parentToolInsets.rightEdgeTopInset
         rightEdgeCenterInset:   parentToolInsets.rightEdgeCenterInset
-        rightEdgeBottomInset:   parent.width - compassBackground.x
+        rightEdgeBottomInset:   parentToolInsets.rightEdgeBottomInset
         topEdgeLeftInset:       parentToolInsets.topEdgeLeftInset
         topEdgeCenterInset:     compassArrowIndicator.y + compassArrowIndicator.height
         topEdgeRightInset:      parentToolInsets.topEdgeRightInset
-        bottomEdgeLeftInset:    parentToolInsets.bottomEdgeLeftInset
+        bottomEdgeLeftInset:    parent.height - compassBackground.y
         bottomEdgeCenterInset:  parentToolInsets.bottomEdgeCenterInset
-        bottomEdgeRightInset:   parent.height - attitudeIndicator.y
+        bottomEdgeRightInset:   parentToolInsets.bottomEdgeRightInset
     }
 
     // This is an example of how you can use parent tool insets to position an element on the custom fly view layer
@@ -110,21 +147,12 @@ Item {
             anchors.margins:        _toolsMargin
             spacing:                _toolsMargin
 
-            Rectangle {
+            Image {
                 Layout.preferredWidth:  ScreenTools.defaultFontPixelHeight * 2.2
                 Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 2.2
-                radius:                 5
-                color:                  _falconMint
-                border.color:           Qt.lighter(_falconMint, 1.18)
-                border.width:           1
-
-                QGCLabel {
-                    anchors.centerIn:   parent
-                    text:               "F"
-                    color:              "white"
-                    font.bold:          true
-                    font.pointSize:     ScreenTools.mediumFontPointSize
-                }
+                source:                 "qrc:/Custom/res/custom_qgroundcontrol.svg"
+                fillMode:               Image.PreserveAspectFit
+                mipmap:                 true
             }
 
             ColumnLayout {
@@ -188,8 +216,8 @@ Item {
         id:                         compassBar
         height:                     ScreenTools.defaultFontPixelHeight * 1.5
         width:                      ScreenTools.defaultFontPixelWidth  * 50
-        anchors.bottom:             parent.bottom
-        anchors.bottomMargin:       _toolsMargin
+        anchors.top:                parent.top
+        anchors.topMargin:          _toolsMargin
         color:                      Qt.rgba(0.03, 0.08, 0.14, 0.88)
         radius:                     5
         border.color:               Qt.rgba(0.34, 0.59, 0.71, 0.62)
@@ -231,9 +259,9 @@ Item {
         id:                         headingIndicator
         height:                     ScreenTools.defaultFontPixelHeight
         width:                      ScreenTools.defaultFontPixelWidth * 4
-        color:                      _falconBlue
+        color:                      _falconMint
         radius:                     3
-        border.color:               _falconMint
+        border.color:               Qt.lighter(_falconMint, 1.18)
         border.width:               1
         anchors.top:                compassBar.top
         anchors.topMargin:          -headingIndicator.height / 2
@@ -259,23 +287,22 @@ Item {
 
     Rectangle {
         id:                     compassBackground
-        anchors.bottom:         attitudeIndicator.bottom
-        anchors.right:          attitudeIndicator.left
-        anchors.rightMargin:    -attitudeIndicator.width / 2
-        width:                  -anchors.rightMargin + compassBezel.width + (_toolsMargin * 2)
-        height:                 attitudeIndicator.height * 0.75
-        radius:                 2
+        anchors.bottom:         parent.bottom
+        anchors.bottomMargin:   0
+        anchors.left:           parent.left
+        anchors.leftMargin:     _toolsMargin + parentToolInsets.leftEdgeBottomInset
+        width:                  ScreenTools.defaultFontPixelWidth * 18
+        height:                 attitudeIndicator.height * 1.2
+        radius:                 6
         color:                  Qt.rgba(0.03, 0.08, 0.14, 0.88)
         border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
         border.width:           1
 
         Rectangle {
             id:                     compassBezel
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin:     _toolsMargin
-            anchors.left:           parent.left
+            anchors.centerIn:       parent
             width:                  height
-            height:                 parent.height - (northLabelBackground.height / 2) - (headingLabelBackground.height / 2)
+            height:                 parent.height * 0.42
             radius:                 height / 2
             border.color:           _falconMint
             border.width:           1
@@ -306,9 +333,9 @@ Item {
             anchors.centerIn:   compassBezel
             height:             compassBezel.height * 0.75
             width:              height
-            source:             "/custom/img/compass_needle.svg"
+            source:             "/custom/img/falcon_tailsitter.svg"
             fillMode:           Image.PreserveAspectFit
-            sourceSize.height:  height
+            mipmap:             true
             transform: [
                 Rotation {
                     origin.x:   headingNeedle.width  / 2
@@ -335,21 +362,51 @@ Item {
                 font.pointSize:     ScreenTools.smallFontPointSize
             }
         }
+
+        TelemetryCorner {
+            anchors.left:           parent.left
+            anchors.top:            parent.top
+            anchors.margins:        _toolsMargin
+            values: [
+                { label: qsTr("ALT"), fact: _activeVehicle ? _activeVehicle.altitudeRelative : null, showUnits: true }
+            ]
+        }
+
+        TelemetryCorner {
+            anchors.right:          parent.right
+            anchors.top:            parent.top
+            anchors.margins:        _toolsMargin
+            values: [
+                { label: qsTr("CLIMB"), fact: _activeVehicle ? _activeVehicle.climbRate : null,   showUnits: true },
+                { label: qsTr("GND"),   fact: _activeVehicle ? _activeVehicle.groundSpeed : null, showUnits: true }
+            ]
+        }
+
+        TelemetryCorner {
+            anchors.left:           parent.left
+            anchors.bottom:         parent.bottom
+            anchors.margins:        _toolsMargin
+            values: [
+                { label: qsTr("AIR"), fact: _activeVehicle ? _activeVehicle.airSpeed : null,    showUnits: true },
+                { label: qsTr("THR"), fact: _activeVehicle ? _activeVehicle.throttlePct : null, showUnits: true }
+            ]
+        }
+
+        TelemetryCorner {
+            anchors.right:          parent.right
+            anchors.bottom:         parent.bottom
+            anchors.margins:        _toolsMargin
+            values: [
+                { label: qsTr("TIME"), fact: _activeVehicle ? _activeVehicle.flightTime : null, showUnits: false }
+            ]
+        }
     }
 
     Rectangle {
         id:                     attitudeIndicator
-        // When the (tall) mission phase panel is present it would overlap the
-        // attitude indicator, so stack the attitude directly below the panel on
-        // the right edge. Non-ROS builds (no panel) keep the original bottom-right
-        // position. Clearing the unused anchor with `undefined` avoids
-        // over-constraining.
-        anchors.top:            missionPhaseLoader.active ? missionPhaseLoader.bottom : undefined
+        anchors.top:            compassArrowIndicator.bottom
         anchors.topMargin:      _toolsMargin
-        anchors.bottom:         missionPhaseLoader.active ? undefined : parent.bottom
-        anchors.bottomMargin:   _toolsMargin + parentToolInsets.bottomEdgeRightInset
-        anchors.rightMargin:    _toolsMargin
-        anchors.right:          parent.right
+        anchors.horizontalCenter: parent.horizontalCenter
         height:                 ScreenTools.defaultFontPixelHeight * 6
         width:                  height
         radius:                 height * 0.5
@@ -368,9 +425,7 @@ Item {
     //-------------------------------------------------------------------------
     //-- Mission phase orchestrator panel (VTOL-GCS, ROS build only)
     //   Sequential phase checklist with live progress / section text, driven by
-    //   RosBridge (command/run_phase <-> command/status). Top-right corner
-    //   (replaces the old control-surface panel); the attitude indicator stacks
-    //   directly below it.
+    //   RosBridge (command/run_phase <-> command/status). Top-right corner.
     Loader {
         id:                     missionPhaseLoader
         active:                 (typeof customRosEnabled !== 'undefined') && customRosEnabled

@@ -7,18 +7,23 @@ import QGroundControl.Controls
 Rectangle {
     id:         _root
     color:      qgcPal.windowTransparent
-    width:      ScreenTools.defaultFontPixelWidth * 7
-    height:     Math.min(maxHeight, toolStripColumn.height + (flickable.anchors.margins * 2))
+    width:      horizontal ? Math.min(maxWidth, toolStripGrid.width + (flickable.anchors.margins * 2))
+                           : ScreenTools.defaultFontPixelWidth * 7
+    height:     horizontal ? ScreenTools.defaultFontPixelWidth * 7
+                           : Math.min(maxHeight, toolStripGrid.height + (flickable.anchors.margins * 2))
     radius:     ScreenTools.defaultFontPixelWidth / 2
 
     property alias  model:              repeater.model
     property real   maxHeight           ///< Maximum height for control, determines whether text is hidden to make control shorter
+    property real   maxWidth:            Number.POSITIVE_INFINITY
+    property bool   horizontal:          false
     property var    fontSize:           ScreenTools.smallFontPointSize
+    readonly property real _buttonExtent: ScreenTools.defaultFontPixelWidth * 6.2
 
     property var _dropPanel: dropPanel
 
     function simulateClick(buttonIndex) {
-        var button = toolStripColumn.children[buttonIndex]
+        var button = repeater.itemAt(buttonIndex)
         if (button.checkable) {
             button.checked = !button.checked
         }
@@ -35,14 +40,16 @@ Rectangle {
         id:                 flickable
         anchors.margins:    ScreenTools.defaultFontPixelWidth * 0.4
         anchors.fill:       parent
-        contentHeight:      toolStripColumn.height
-        flickableDirection: Flickable.VerticalFlick
+        contentWidth:       toolStripGrid.width
+        contentHeight:      toolStripGrid.height
+        flickableDirection: horizontal ? Flickable.HorizontalFlick : Flickable.VerticalFlick
         clip:               true
 
-        Column {
-            id:             toolStripColumn
-            anchors.left:   parent.left
-            anchors.right:  parent.right
+        Grid {
+            id:             toolStripGrid
+            columns:        horizontal ? 0 : 1
+            rows:           horizontal ? 1 : 0
+            flow:           horizontal ? Grid.TopToBottom : Grid.LeftToRight
             spacing:        ScreenTools.defaultFontPixelWidth * 0.25
 
             Repeater {
@@ -50,9 +57,8 @@ Rectangle {
 
                 ToolStripHoverButton {
                     id:                 buttonTemplate
-                    anchors.left:       toolStripColumn.left
-                    anchors.right:      toolStripColumn.right
-                    height:             width
+                    width:              _root._buttonExtent
+                    height:             _root._buttonExtent
                     radius:             ScreenTools.defaultFontPixelWidth / 2
                     fontPointSize:      _root.fontSize
                     toolStripAction:    modelData

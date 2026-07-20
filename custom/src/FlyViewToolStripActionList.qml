@@ -10,9 +10,9 @@ ToolStripActionList {
 
     model: [
         PreFlightCheckListShowAction { onTriggered: displayPreFlightChecklist() },
-        GuidedActionTakeoff { },
+        GuidedActionTakeoff { iconSource: "/custom/img/falcon_takeoff.svg" },
         GuidedActionLand { },
-        GuidedActionRTL { },
+        GuidedActionRTL { iconSource: "/custom/img/falcon_return.svg" },
         GuidedActionPause { },
         FlyViewAdditionalActionsButton { },
         GuidedToolStripAction {

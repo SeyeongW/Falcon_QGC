@@ -72,6 +72,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             pitchAngle:         _pitchAngle
             rollAngle:          _rollAngle
+            reticleColor:       "#a3e635"
             color:              Qt.rgba(0,0,0,0)
         }
         //----------------------------------------------------
