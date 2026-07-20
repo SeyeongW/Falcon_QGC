@@ -8,6 +8,9 @@
 # ----------------------------------------------------------------------------
 set(QGC_APP_NAME "FGC" CACHE STRING "App Name" FORCE)
 
+# Treat as a stable build so the app name has no " Daily" suffix appended.
+set(QGC_STABLE_BUILD ON CACHE BOOL "Stable release build (disables daily build features)" FORCE)
+
 # ----------------------------------------------------------------------------
 # Custom Icons and Graphics
 # ----------------------------------------------------------------------------
