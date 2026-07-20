@@ -62,28 +62,28 @@ Item {
     component TelemetryCorner: Column {
         property var values: []
 
-        spacing: -ScreenTools.defaultFontPixelHeight * 0.3
+        spacing: ScreenTools.defaultFontPixelHeight * 0.1
 
         Repeater {
             model: values
 
             Row {
-                spacing: ScreenTools.defaultFontPixelWidth * 0.5
+                spacing: ScreenTools.defaultFontPixelWidth * 0.35
 
                 QGCLabel {
                     anchors.baseline: valueLabel.baseline
                     text:             modelData.label
                     color:            _falconMint
-                    font.bold:        true
-                    font.pointSize:   ScreenTools.smallFontPointSize
+                    font.bold:        false
+                    font.pointSize:   ScreenTools.smallFontPointSize * 0.85
                 }
 
                 QGCLabel {
                     id:               valueLabel
                     text:             telemetryValue(modelData.fact, modelData.showUnits)
                     color:            "white"
-                    font.bold:        true
-                    font.pointSize:   ScreenTools.defaultFontPointSize
+                    font.bold:        false
+                    font.pointSize:   ScreenTools.smallFontPointSize
                 }
             }
         }
