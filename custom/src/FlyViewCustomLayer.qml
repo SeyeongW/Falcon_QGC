@@ -367,19 +367,26 @@ Item {
         x:                      0
         y:                      0
         width:                  aircraftPanelResponsiveWidth
-        height:                 _sectionHeight * 2 + _dividerHeight
+        height:                 _defaultHeight
         movable:                true
-        resizable:              false
-        minWidth:               0
-        minHeight:              0
+        resizable:              true
+        minWidth:               ScreenTools.defaultFontPixelWidth * 16
+        minHeight:              ScreenTools.defaultFontPixelHeight * 8
 
         readonly property real _dividerHeight: 1
-        readonly property real _sectionHeight: Math.max(0, Math.min(
-                                                             aircraftPanelResponsiveHeight,
-                                                             ((parent ? parent.height : 0) - _dividerHeight) / 2
-                                                         ))
+        // The two sections split the panel's *actual* height, so the content
+        // scales with the panel and dragging the edge never clips the bottom.
+        readonly property real _sectionHeight: Math.max(0, (height - _dividerHeight) / 2)
+        // Default height: a bit taller than the old responsive cap so the
+        // sections aren't cramped, but never taller than the available bounds.
+        readonly property real _defaultHeight: {
+            const halfBounds = ((parent ? parent.height : 0) - _dividerHeight) / 2
+            const section = Math.max(0, Math.min(aircraftPanelResponsiveHeight * 1.25, halfBounds))
+            return section * 2 + _dividerHeight
+        }
         property bool _positionInitialized: false
         property bool _hasCustomPosition:   false
+        property bool _hasCustomSize:       false
         property bool _updatingGeometry:    false
 
         function _defaultX() {
@@ -393,7 +400,10 @@ Item {
 
         function _resetPosition() {
             _hasCustomPosition = false
+            _hasCustomSize = false
             _updatingGeometry = true
+            width = Math.min(aircraftPanelResponsiveWidth, parent ? parent.width : aircraftPanelResponsiveWidth)
+            height = _defaultHeight
             x = _defaultX()
             y = _defaultY()
             _updatingGeometry = false
@@ -405,9 +415,11 @@ Item {
             }
 
             _updatingGeometry = true
-            width = Math.min(aircraftPanelResponsiveWidth, parent.width)
-            height = _sectionHeight * 2 + _dividerHeight
-            if (_hasCustomPosition) {
+            if (!_hasCustomSize) {
+                width = Math.min(aircraftPanelResponsiveWidth, parent.width)
+                height = _defaultHeight
+            }
+            if (_hasCustomPosition || _hasCustomSize) {
                 clampToParent()
             } else {
                 x = _defaultX()
@@ -416,6 +428,16 @@ Item {
             _updatingGeometry = false
         }
 
+        onWidthChanged: {
+            if (_positionInitialized && !_updatingGeometry) {
+                _hasCustomSize = true
+            }
+        }
+        onHeightChanged: {
+            if (_positionInitialized && !_updatingGeometry) {
+                _hasCustomSize = true
+            }
+        }
         onXChanged: {
             if (_positionInitialized && !_updatingGeometry) {
                 _hasCustomPosition = true
