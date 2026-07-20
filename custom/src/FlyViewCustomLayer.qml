@@ -13,6 +13,27 @@ Item {
 
     readonly property string noGPS:         qsTr("NO GPS")
     readonly property real   indicatorValueWidth:   ScreenTools.defaultFontPixelWidth * 7
+    readonly property bool   aircraftCompactMode: width < 1400 || height < 800
+    readonly property bool   aircraftLargeMode: width >= 2200 && height >= 1200
+    readonly property real   aircraftPanelResponsiveWidth: aircraftLargeMode
+                                                               ? clamp(width * 0.16, 420, 560)
+                                                               : aircraftCompactMode
+                                                                   ? clamp(width * 0.20, 220, 280)
+                                                                   : clamp(width * 0.18, 300, 420)
+    readonly property real   aircraftPanelResponsiveHeight: Math.min(
+                                                                       aircraftPanelResponsiveWidth * 1.05,
+                                                                       height * (aircraftCompactMode ? 0.38 : 0.46)
+                                                                   )
+    readonly property real   aircraftTitlePixelSize: clamp(
+                                                        aircraftPanelResponsiveWidth * 0.045,
+                                                        aircraftCompactMode ? 12 : 14,
+                                                        aircraftLargeMode ? 22 : 19
+                                                    )
+    readonly property real   aircraftReadoutPixelSize: clamp(
+                                                          aircraftPanelResponsiveWidth * 0.035,
+                                                          aircraftCompactMode ? 10 : 12,
+                                                          aircraftLargeMode ? 18 : 15
+                                                      )
 
     property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
     property real   _indicatorDiameter:     ScreenTools.defaultFontPixelWidth * 18
@@ -32,6 +53,10 @@ Item {
     readonly property color  _falconCyan:   "#38BDF8"
     readonly property color  _falconBlue:   "#1D4ED8"
     readonly property color  _falconMint:   "#5796B4"
+
+    function clamp(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, value))
+    }
 
     function _clampMissionHeader() {
         if (!missionHeader || !missionHeader.parent) {
@@ -419,6 +444,115 @@ Item {
             vehicle:            _activeVehicle
             showHeading:        false
             anchors.centerIn:   parent
+        }
+    }
+
+    //-------------------------------------------------------------------------
+    //-- Aircraft control-surface panel (from dev/daehyeon)
+    //   Uses live SERVO_OUTPUT_RAW values when connected and sits directly
+    //   above the bottom-right Fly View bar.
+    Rectangle {
+        id:                     controlSurfacePanel
+        anchors.bottom:         parent.bottom
+        anchors.right:          parent.right
+        anchors.bottomMargin:   parentToolInsets.bottomEdgeRightInset
+        anchors.rightMargin:    _toolsMargin
+        width:                  aircraftPanelResponsiveWidth
+        height:                 aircraftPanelResponsiveHeight
+        radius:                 6
+        color:                  Qt.rgba(0.03, 0.08, 0.14, 0.92)
+        border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
+        border.width:           1
+
+        property var  _servo:     []
+        property bool _haveServo: _servo.length >= 8 && _servo[0] > 0
+
+        Connections {
+            target: _activeVehicle
+            ignoreUnknownSignals: true
+            function onServoOutputsChanged(servoValues) { controlSurfacePanel._servo = servoValues }
+        }
+
+        // Channel mapping: ch1 aileron, ch2 elevator, ch3 pusher,
+        // ch4 rudder, ch5-8 lift motors.
+        function _surf(ch) { return _haveServo && _servo[ch] > 0 ? (_servo[ch] - 1500) / 500 : 0 }
+        function _mot(ch)  { return _haveServo && _servo[ch] > 0 ? (_servo[ch] - 1000) / 1000 : 0 }
+
+        property bool _fwdMode: _activeVehicle
+                                ? (_activeVehicle.vtol ? _activeVehicle.vtolInFwdFlight : _activeVehicle.fixedWing)
+                                : false
+
+        Item {
+            id:                     aircraftTitleArea
+            anchors.top:            parent.top
+            anchors.left:           parent.left
+            anchors.right:          parent.right
+            height:                 controlSurfaceTitle.implicitHeight + _toolsMargin
+
+            QGCLabel {
+                id:                         controlSurfaceTitle
+                anchors.top:                parent.top
+                anchors.topMargin:          _toolsMargin * 0.5
+                anchors.horizontalCenter:   parent.horizontalCenter
+                text:                       qsTr("Aircraft  ·  ") + (controlSurfacePanel._fwdMode ? qsTr("FORWARD") : qsTr("HOVER"))
+                color:                      "white"
+                font.pixelSize:             aircraftTitlePixelSize
+            }
+        }
+
+        Item {
+            id:                     aircraftContentArea
+            anchors.top:            aircraftTitleArea.bottom
+            anchors.bottom:         aircraftReadoutArea.top
+            anchors.left:           parent.left
+            anchors.right:          parent.right
+            anchors.leftMargin:     6
+            anchors.rightMargin:    6
+
+            ControlSurfaceWidget {
+                id:             controlSurfaceWidget
+                anchors.fill:   parent
+
+                fixedWingMode:      controlSurfacePanel._fwdMode
+
+                aileronLeftDeflection:  controlSurfacePanel._surf(0)
+                aileronRightDeflection: -controlSurfacePanel._surf(0)
+                elevatorDeflection:     controlSurfacePanel._surf(1)
+                rudderDeflection:       controlSurfacePanel._surf(3)
+
+                liftThrottleFL: controlSurfacePanel._mot(4)
+                liftThrottleFR: controlSurfacePanel._mot(5)
+                liftThrottleRL: controlSurfacePanel._mot(6)
+                liftThrottleRR: controlSurfacePanel._mot(7)
+                pusherThrottle: controlSurfacePanel._mot(2)
+            }
+        }
+
+        Item {
+            id:                     aircraftReadoutArea
+            anchors.left:           parent.left
+            anchors.right:          parent.right
+            anchors.bottom:         parent.bottom
+            height:                 aircraftReadoutPixelSize * 1.8
+
+            Row {
+                anchors.centerIn: parent
+                spacing: aircraftPanelResponsiveWidth * 0.06
+
+                QGCLabel {
+                    text: "L AIL " + (controlSurfaceWidget.aileronLeftDeflection >= 0 ? "+" : "") + controlSurfaceWidget.aileronLeftDeflection.toFixed(2)
+                    color: controlSurfaceWidget.aileronLeftDeflection >= 0 ? controlSurfaceWidget.downColor : controlSurfaceWidget.upColor
+                    font.pixelSize: aircraftReadoutPixelSize
+                    font.bold: true
+                }
+
+                QGCLabel {
+                    text: "R AIL " + (controlSurfaceWidget.aileronRightDeflection >= 0 ? "+" : "") + controlSurfaceWidget.aileronRightDeflection.toFixed(2)
+                    color: controlSurfaceWidget.aileronRightDeflection >= 0 ? controlSurfaceWidget.downColor : controlSurfaceWidget.upColor
+                    font.pixelSize: aircraftReadoutPixelSize
+                    font.bold: true
+                }
+            }
         }
     }
 

@@ -4,6 +4,9 @@
         <file alias="attitude_crosshair.svg">res/Images/attitude_crosshair.svg</file>
         <file alias="attitude_dial.svg">res/Images/attitude_dial.svg</file>
         <file alias="attitude_pointer.svg">res/Images/attitude_pointer.svg</file>
+        <file alias="aircraft_body.png">res/Images/aircraft_body.png</file>
+        <file alias="aileron_left.png">res/Images/aileron_left.png</file>
+        <file alias="aileron_right.png">res/Images/aileron_right.png</file>
         <file alias="chronometer.svg">res/Images/chronometer.svg</file>
         <file alias="compass_needle.svg">res/Images/compass_needle.svg</file>
         <file alias="compass_pointer.svg">res/Images/compass_pointer.svg</file>
