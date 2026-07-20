@@ -7,6 +7,13 @@
         <file alias="aircraft_body.png">res/Images/aircraft_body.png</file>
         <file alias="aileron_left.png">res/Images/aileron_left.png</file>
         <file alias="aileron_right.png">res/Images/aileron_right.png</file>
+        <file alias="ruddervator_left.png">res/Images/ruddervator_left.png</file>
+        <file alias="ruddervator_right.png">res/Images/ruddervator_right.png</file>
+        <file alias="lift_prop_fl.png">res/Images/lift_prop_fl.png</file>
+        <file alias="lift_prop_fr.png">res/Images/lift_prop_fr.png</file>
+        <file alias="lift_prop_rl.png">res/Images/lift_prop_rl.png</file>
+        <file alias="lift_prop_rr.png">res/Images/lift_prop_rr.png</file>
+        <file alias="pusher_prop.png">res/Images/pusher_prop.png</file>
         <file alias="chronometer.svg">res/Images/chronometer.svg</file>
         <file alias="compass_needle.svg">res/Images/compass_needle.svg</file>
         <file alias="compass_pointer.svg">res/Images/compass_pointer.svg</file>

@@ -315,6 +315,8 @@ Item {
         property bool _fwdMode: (_activeVehicle && _activeVehicle.vtol)
                                 ? _activeVehicle.vtolInFwdFlight
                                 : _demoFwd
+        readonly property real _elevatorValue: _haveServo ? _surf(1) : Math.sin(_t * 0.7)
+        readonly property real _rudderValue:   _haveServo ? _surf(3) : Math.sin(_t * 0.5)
 
         Item {
             id:                     aircraftTitleArea
@@ -351,8 +353,13 @@ Item {
 
                 aileronLeftDeflection:  controlSurfacePanel._haveServo ?  controlSurfacePanel._surf(0) :  Math.sin(controlSurfacePanel._t)
                 aileronRightDeflection: controlSurfacePanel._haveServo ? -controlSurfacePanel._surf(0) : -Math.sin(controlSurfacePanel._t)
-                elevatorDeflection:     controlSurfacePanel._haveServo ?  controlSurfacePanel._surf(1) :  Math.sin(controlSurfacePanel._t * 0.7)
-                rudderDeflection:       controlSurfacePanel._haveServo ?  controlSurfacePanel._surf(3) :  Math.sin(controlSurfacePanel._t * 0.5)
+                elevatorDeflection:     controlSurfacePanel._elevatorValue
+                rudderDeflection:       controlSurfacePanel._rudderValue
+
+                // Temporary UI/simulation mix. Replace these bindings with the
+                // actual left/right Ruddervator servo output channels on the aircraft.
+                ruddervatorLeftDeflection:  clamp(controlSurfacePanel._elevatorValue + controlSurfacePanel._rudderValue, -1, 1)
+                ruddervatorRightDeflection: clamp(controlSurfacePanel._elevatorValue - controlSurfacePanel._rudderValue, -1, 1)
 
                 liftThrottleFL: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(4) : 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2)
                 liftThrottleFR: controlSurfacePanel._haveServo ? controlSurfacePanel._mot(5) : 0.55 + 0.15 * Math.sin(controlSurfacePanel._t * 2 + 1)
@@ -367,11 +374,13 @@ Item {
             anchors.left:           parent.left
             anchors.right:          parent.right
             anchors.bottom:         parent.bottom
-            height:                 aircraftReadoutPixelSize * 1.8
+            height:                 aircraftReadoutPixelSize * 3.2
 
-            Row {
+            Grid {
                 anchors.centerIn: parent
-                spacing: aircraftPanelResponsiveWidth * 0.06
+                columns: 2
+                columnSpacing: aircraftPanelResponsiveWidth * 0.06
+                rowSpacing: aircraftReadoutPixelSize * 0.2
 
                 QGCLabel {
                     text: "L AIL " + (controlSurfaceWidget.aileronLeftDeflection >= 0 ? "+" : "") + controlSurfaceWidget.aileronLeftDeflection.toFixed(2)
@@ -383,6 +392,20 @@ Item {
                 QGCLabel {
                     text: "R AIL " + (controlSurfaceWidget.aileronRightDeflection >= 0 ? "+" : "") + controlSurfaceWidget.aileronRightDeflection.toFixed(2)
                     color: controlSurfaceWidget.aileronRightDeflection >= 0 ? controlSurfaceWidget.downColor : controlSurfaceWidget.upColor
+                    font.pixelSize: aircraftReadoutPixelSize
+                    font.bold: true
+                }
+
+                QGCLabel {
+                    text: "L RV " + (controlSurfaceWidget.ruddervatorLeftDeflection >= 0 ? "+" : "") + controlSurfaceWidget.ruddervatorLeftDeflection.toFixed(2)
+                    color: controlSurfaceWidget.ruddervatorLeftColor
+                    font.pixelSize: aircraftReadoutPixelSize
+                    font.bold: true
+                }
+
+                QGCLabel {
+                    text: "R RV " + (controlSurfaceWidget.ruddervatorRightDeflection >= 0 ? "+" : "") + controlSurfaceWidget.ruddervatorRightDeflection.toFixed(2)
+                    color: controlSurfaceWidget.ruddervatorRightColor
                     font.pixelSize: aircraftReadoutPixelSize
                     font.bold: true
                 }

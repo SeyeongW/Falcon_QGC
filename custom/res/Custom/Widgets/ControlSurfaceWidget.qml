@@ -20,6 +20,8 @@ Item {
     property real aileronRightDeflection: 0
     property real elevatorDeflection:     0
     property real rudderDeflection:       0
+    property real ruddervatorLeftDeflection:  0
+    property real ruddervatorRightDeflection: 0
 
     // Motor throttles, normalized to [0, 1].
     property real liftThrottleFL: 0
@@ -34,6 +36,8 @@ Item {
     property color neutralColor:  Qt.rgba(0.35, 0.38, 0.44, 1.0)
     property color downColor:     Qt.rgba(0.20, 0.80, 0.45, 1.0)   // trailing edge down (+)
     property color upColor:       Qt.rgba(0.95, 0.40, 0.30, 1.0)   // trailing edge up (-)
+    property color ruddervatorLeftColor:  "#4D8DFF"
+    property color ruddervatorRightColor: "#FF6555"
 
     // Max visual hinge tilt (deg) for up/down surfaces, and swing for the rudder.
     property real maxTiltAngle:   48
@@ -45,6 +49,54 @@ Item {
     property real rightAileronHingeXRatio: 0.79
     property real aileronHingeYRatio:      0.52
 
+    // Propeller hub centers measured from each PNG's non-transparent bounding box.
+    property real liftPropFLHubXRatio: 0.3450
+    property real liftPropFLHubYRatio: 0.3255
+    property real liftPropFRHubXRatio: 0.6550
+    property real liftPropFRHubYRatio: 0.3255
+    property real liftPropRLHubXRatio: 0.3455
+    property real liftPropRLHubYRatio: 0.5615
+    property real liftPropRRHubXRatio: 0.6550
+    property real liftPropRRHubYRatio: 0.5605
+    property real pusherPropHubXRatio: 0.5000
+    property real pusherPropHubYRatio: 0.7195
+
+    property real liftPropFLAngle: 0
+    property real liftPropFRAngle: 0
+    property real liftPropRLAngle: 0
+    property real liftPropRRAngle: 0
+    property real pusherPropAngle: 0
+
+    property real propellerRunThreshold: 0.05
+    property real maxPropellerDegreesPerSecond: 1080
+
+    // Temporary visualization directions. Confirm the aircraft's actual CW/CCW
+    // motor layout before replacing these values.
+    property int liftPropFLDirection: 1
+    property int liftPropFRDirection: -1
+    property int liftPropRLDirection: -1
+    property int liftPropRRDirection: 1
+    property int pusherPropDirection: 1
+
+    function clamp(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, value))
+    }
+
+    function motorMagnitude(value) {
+        return root.clamp(Math.abs(value), 0.0, 1.0)
+    }
+
+    function nextPropellerAngle(angle, direction, throttle, elapsedMilliseconds) {
+        var magnitude = root.motorMagnitude(throttle)
+        if (magnitude <= root.propellerRunThreshold) {
+            return angle
+        }
+
+        var updatedAngle = (angle
+                            + direction * magnitude * root.maxPropellerDegreesPerSecond * elapsedMilliseconds / 1000.0) % 360
+        return updatedAngle < 0 ? updatedAngle + 360 : updatedAngle
+    }
+
     /// Blend neutral -> direction color by |deflection|.
     function surfaceColor(v) {
         var m = Math.min(1, Math.abs(v))
@@ -53,6 +105,31 @@ Item {
                        neutralColor.g + (target.g - neutralColor.g) * m,
                        neutralColor.b + (target.b - neutralColor.b) * m,
                        1.0)
+    }
+
+    // Visualizes PX4 motor output commands, not measured ESC RPM feedback.
+    Timer {
+        id: propellerTimer
+        interval: 16
+        repeat: true
+        running: root.motorMagnitude(root.liftThrottleFL) > root.propellerRunThreshold
+                 || root.motorMagnitude(root.liftThrottleFR) > root.propellerRunThreshold
+                 || root.motorMagnitude(root.liftThrottleRL) > root.propellerRunThreshold
+                 || root.motorMagnitude(root.liftThrottleRR) > root.propellerRunThreshold
+                 || root.motorMagnitude(root.pusherThrottle) > root.propellerRunThreshold
+
+        onTriggered: {
+            root.liftPropFLAngle = root.nextPropellerAngle(root.liftPropFLAngle, root.liftPropFLDirection,
+                                                           root.liftThrottleFL, propellerTimer.interval)
+            root.liftPropFRAngle = root.nextPropellerAngle(root.liftPropFRAngle, root.liftPropFRDirection,
+                                                           root.liftThrottleFR, propellerTimer.interval)
+            root.liftPropRLAngle = root.nextPropellerAngle(root.liftPropRLAngle, root.liftPropRLDirection,
+                                                           root.liftThrottleRL, propellerTimer.interval)
+            root.liftPropRRAngle = root.nextPropellerAngle(root.liftPropRRAngle, root.liftPropRRDirection,
+                                                           root.liftThrottleRR, propellerTimer.interval)
+            root.pusherPropAngle = root.nextPropellerAngle(root.pusherPropAngle, root.pusherPropDirection,
+                                                           root.pusherThrottle, propellerTimer.interval)
+        }
     }
 
     // ---- A control surface that physically tilts (up/down) or swings (rudder) ----
@@ -182,6 +259,9 @@ Item {
             anchors.fill: parent
             source: "/custom/img/aircraft_body.png"
             fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            antialiasing: true
         }
 
         Image {
@@ -225,6 +305,127 @@ Item {
                 axis.z: 0
                 angle: Math.max(-70, Math.min(70, root.aileronRightDeflection * root.maxTiltAngle * root.aileronVisualGain))
                 Behavior on angle { NumberAnimation { duration: 130 } }
+            }
+        }
+
+        // Ruddervator visualization is temporarily fixed at neutral until the
+        // final hinge-axis representation and actual aircraft servo mapping are implemented.
+        Image {
+            id: leftRuddervatorImage
+            anchors.fill: parent
+            source: "/custom/img/ruddervator_left.png"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            antialiasing: true
+            opacity: 1.0
+        }
+
+        Image {
+            id: rightRuddervatorImage
+            anchors.fill: parent
+            source: "/custom/img/ruddervator_right.png"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            antialiasing: true
+            opacity: 1.0
+        }
+
+        Image {
+            id: liftPropFLImage
+            anchors.fill: parent
+            source: "/custom/img/lift_prop_fl.png"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            antialiasing: true
+            opacity: 1.0
+
+            transform: Rotation {
+                origin.x: (liftPropFLImage.width - liftPropFLImage.paintedWidth) / 2
+                          + liftPropFLImage.paintedWidth * root.liftPropFLHubXRatio
+                origin.y: (liftPropFLImage.height - liftPropFLImage.paintedHeight) / 2
+                          + liftPropFLImage.paintedHeight * root.liftPropFLHubYRatio
+                angle: root.liftPropFLAngle
+            }
+        }
+
+        Image {
+            id: liftPropFRImage
+            anchors.fill: parent
+            source: "/custom/img/lift_prop_fr.png"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            antialiasing: true
+            opacity: 1.0
+
+            transform: Rotation {
+                origin.x: (liftPropFRImage.width - liftPropFRImage.paintedWidth) / 2
+                          + liftPropFRImage.paintedWidth * root.liftPropFRHubXRatio
+                origin.y: (liftPropFRImage.height - liftPropFRImage.paintedHeight) / 2
+                          + liftPropFRImage.paintedHeight * root.liftPropFRHubYRatio
+                angle: root.liftPropFRAngle
+            }
+        }
+
+        Image {
+            id: liftPropRLImage
+            anchors.fill: parent
+            source: "/custom/img/lift_prop_rl.png"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            antialiasing: true
+            opacity: 1.0
+
+            transform: Rotation {
+                origin.x: (liftPropRLImage.width - liftPropRLImage.paintedWidth) / 2
+                          + liftPropRLImage.paintedWidth * root.liftPropRLHubXRatio
+                origin.y: (liftPropRLImage.height - liftPropRLImage.paintedHeight) / 2
+                          + liftPropRLImage.paintedHeight * root.liftPropRLHubYRatio
+                angle: root.liftPropRLAngle
+            }
+        }
+
+        Image {
+            id: liftPropRRImage
+            anchors.fill: parent
+            source: "/custom/img/lift_prop_rr.png"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            antialiasing: true
+            opacity: 1.0
+
+            transform: Rotation {
+                origin.x: (liftPropRRImage.width - liftPropRRImage.paintedWidth) / 2
+                          + liftPropRRImage.paintedWidth * root.liftPropRRHubXRatio
+                origin.y: (liftPropRRImage.height - liftPropRRImage.paintedHeight) / 2
+                          + liftPropRRImage.paintedHeight * root.liftPropRRHubYRatio
+                angle: root.liftPropRRAngle
+            }
+        }
+
+        // The pusher's screen-plane rotation is a simplified indication that the
+        // cruise motor is active; its real top-view rotation axis is different.
+        Image {
+            id: pusherPropImage
+            anchors.fill: parent
+            source: "/custom/img/pusher_prop.png"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            mipmap: true
+            antialiasing: true
+            opacity: 1.0
+
+            transform: Rotation {
+                origin.x: (pusherPropImage.width - pusherPropImage.paintedWidth) / 2
+                          + pusherPropImage.paintedWidth * root.pusherPropHubXRatio
+                origin.y: (pusherPropImage.height - pusherPropImage.paintedHeight) / 2
+                          + pusherPropImage.paintedHeight * root.pusherPropHubYRatio
+                angle: root.pusherPropAngle
             }
         }
 
