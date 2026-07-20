@@ -11,7 +11,9 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 #include <mavros_msgs/msg/rc_out.hpp>
+#include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/string.hpp>
 
@@ -85,6 +87,10 @@ public slots:
     void setActuatorTopic(const QString &topic);
     /// Ask the orchestrator to run mission phase `n` (publishes command/run_phase).
     Q_INVOKABLE void runPhase(int n);
+    /// Take control back from the orchestrator: publishes command/abort so it
+    /// terminates the running phase script and hands the vehicle to the GCS
+    /// (the orchestrator switches PX4 to HOLD / hover-in-place).
+    Q_INVOKABLE void abortMission();
     /// Re-create the command/status subscription to force fresh discovery of the
     /// orchestrator (used by the panel's "retry" button after a link timeout).
     Q_INVOKABLE void retryPhaseLink();
@@ -106,6 +112,7 @@ private:
     void _spinOnce();
     void _updateFps();
     void _onImage(const sensor_msgs::msg::Image::ConstSharedPtr &msg);
+    void _onCompressedImage(const sensor_msgs::msg::CompressedImage::ConstSharedPtr &msg);
     void _onActuator(const mavros_msgs::msg::RCOut::ConstSharedPtr &msg);
     void _onPhaseStatus(const std_msgs::msg::String::ConstSharedPtr &msg);
 
@@ -114,9 +121,11 @@ private:
 
     rclcpp::Node::SharedPtr _node;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr _imageSub;
+    rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr _compressedSub;
     rclcpp::Subscription<mavros_msgs::msg::RCOut>::SharedPtr _actuatorSub;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _phaseStatusSub;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr _runPhasePub;
+    rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr _abortPub;
 
     QTimer _spinTimer;                          ///< drives rclcpp::spin_some
     QTimer _fpsTimer;                            ///< 1 Hz frame-rate accounting

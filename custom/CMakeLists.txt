@@ -81,6 +81,7 @@ qgc_set_qt_resource_alias(
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomSignalStrength.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomToolBarButton.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomVehicleButton.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MovablePanel.qml
     ${CUSTOM_ROS_QML_FILES}
 )
 
@@ -98,6 +99,7 @@ qt_add_qml_module(CustomModule
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomSignalStrength.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomToolBarButton.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomVehicleButton.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MovablePanel.qml
         ${CUSTOM_ROS_QML_FILES}
     NO_PLUGIN
 )

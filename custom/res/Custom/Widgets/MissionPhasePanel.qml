@@ -123,7 +123,18 @@ Rectangle {
 
         Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(0.22, 0.74, 0.97, 0.28) }
 
-        // --- phase rows ---
+        // --- phase rows (scrollable when they overflow the panel height) ---
+        ScrollView {
+            id: phaseScroll
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            contentWidth: availableWidth
+
+            ColumnLayout {
+                width: phaseScroll.availableWidth
+                spacing: root._margin
+
         Repeater {
             model: root._phases
 
@@ -230,6 +241,8 @@ Rectangle {
                 }
             }
         }
+            }
+        }
 
         // --- status footer ---
         Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(0.22, 0.74, 0.97, 0.28) }
@@ -256,6 +269,14 @@ Rectangle {
                     return RosBridge.phaseMsg.length > 0 ? RosBridge.phaseMsg : qsTr("대기 중")
                 }
                 color: (root._connFailed || root._state === "failed") ? qgcPal.colorRed : qgcPal.text
+            }
+
+            QGCButton {
+                // Take control back from the orchestrator: abort the running phase
+                // and hand the vehicle to the GCS (PX4 switches to HOLD / hover).
+                text: root._busy ? qsTr("임무 중단 · 제어권 회수") : qsTr("제어권 회수 (HOLD)")
+                visible: root._linkOk
+                onClicked: RosBridge.abortMission()
             }
 
             QGCButton {
