@@ -29,6 +29,8 @@ Item {
     property real liftThrottleRL: 0
     property real liftThrottleRR: 0
     property real pusherThrottle: 0
+    property bool actuatorDataValid: false
+    property bool vehicleArmed: false
 
     // Palette
     property color airframeColor: Qt.rgba(0.20, 0.22, 0.26, 1.0)
@@ -43,6 +45,7 @@ Item {
     property real maxTiltAngle:   48
     property real maxRudderAngle: 26
     property real aileronVisualGain: 1.4
+    property real aircraftVisualYOffsetRatio: -0.08
 
     // Hinge positions within the aspect-fitted aircraft image.
     property real leftAileronHingeXRatio:  0.21
@@ -70,6 +73,12 @@ Item {
     property real propellerRunThreshold: 0.05
     property real maxPropellerDegreesPerSecond: 1080
 
+    readonly property bool anyMotorRunning: motorMagnitude(liftThrottleFL) > propellerRunThreshold
+                                            || motorMagnitude(liftThrottleFR) > propellerRunThreshold
+                                            || motorMagnitude(liftThrottleRL) > propellerRunThreshold
+                                            || motorMagnitude(liftThrottleRR) > propellerRunThreshold
+                                            || motorMagnitude(pusherThrottle) > propellerRunThreshold
+
     // Temporary visualization directions. Confirm the aircraft's actual CW/CCW
     // motor layout before replacing these values.
     property int liftPropFLDirection: 1
@@ -83,7 +92,7 @@ Item {
     }
 
     function motorMagnitude(value) {
-        return root.clamp(Math.abs(value), 0.0, 1.0)
+        return Math.max(0, Math.min(1, value))
     }
 
     function nextPropellerAngle(angle, direction, throttle, elapsedMilliseconds) {
@@ -112,11 +121,7 @@ Item {
         id: propellerTimer
         interval: 16
         repeat: true
-        running: root.motorMagnitude(root.liftThrottleFL) > root.propellerRunThreshold
-                 || root.motorMagnitude(root.liftThrottleFR) > root.propellerRunThreshold
-                 || root.motorMagnitude(root.liftThrottleRL) > root.propellerRunThreshold
-                 || root.motorMagnitude(root.liftThrottleRR) > root.propellerRunThreshold
-                 || root.motorMagnitude(root.pusherThrottle) > root.propellerRunThreshold
+        running: root.actuatorDataValid && root.vehicleArmed && root.anyMotorRunning
 
         onTriggered: {
             root.liftPropFLAngle = root.nextPropellerAngle(root.liftPropFLAngle, root.liftPropFLDirection,
@@ -218,6 +223,7 @@ Item {
         width:  s
         height: s
         anchors.centerIn: parent
+        anchors.verticalCenterOffset: root.height * root.aircraftVisualYOffsetRatio
 
         // ---- Lift system (booms + 4 rotors): prominent in hover ----
         Item {
