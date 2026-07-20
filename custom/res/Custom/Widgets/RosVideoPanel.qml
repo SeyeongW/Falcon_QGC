@@ -73,15 +73,28 @@ Rectangle {
                 }
             }
 
-            QGCComboBox {
-                id: topicCombo
+            RowLayout {
                 Layout.fillWidth: true
-                model: RosBridge.imageTopics
-                currentIndex: RosBridge.imageTopics.indexOf(RosBridge.imageTopic)
-                alternateText: RosBridge.imageTopics.length === 0 ? qsTr("no image topics")
-                             : RosBridge.imageTopic === ""        ? qsTr("select topic")
-                             : ""
-                onActivated: RosBridge.setImageTopic(currentText)
+                spacing: root._margin
+
+                QGCComboBox {
+                    id: topicCombo
+                    Layout.fillWidth: true
+                    model: RosBridge.imageTopics
+                    currentIndex: RosBridge.imageTopics.indexOf(RosBridge.imageTopic)
+                    alternateText: RosBridge.imageTopics.length === 0 ? qsTr("no image topics")
+                                 : RosBridge.imageTopic === ""        ? qsTr("select topic")
+                                 : ""
+                    onActivated: RosBridge.setImageTopic(currentText)
+                }
+
+                // Re-scan the ROS graph for image topics (rqt-style refresh).
+                QGCButton {
+                    id: refreshButton
+                    Layout.preferredWidth: ScreenTools.defaultFontPixelHeight * 2.2
+                    text: "⟳"
+                    onClicked: RosBridge.refreshTopics()
+                }
             }
         }
 

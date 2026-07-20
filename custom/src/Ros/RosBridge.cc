@@ -11,10 +11,12 @@ Q_LOGGING_CATEGORY(RosBridgeLog, "Custom.RosBridge")
 namespace {
 constexpr const char *kNodeName = "vtol_gcs";
 constexpr const char *kImageType = "sensor_msgs/msg/Image";
+constexpr const char *kCompressedType = "sensor_msgs/msg/CompressedImage";
 constexpr qint64 kActuatorStaleMs = 1500;   ///< no RCOut for this long -> go static
 constexpr qint64 kPhaseStaleMs = 3000;      ///< no command/status for this long -> link down
 constexpr const char *kRunPhaseTopic = "command/run_phase";
 constexpr const char *kStatusTopic = "command/status";
+constexpr const char *kAbortTopic = "command/abort";
 }
 
 RosBridge::RosBridge(QObject *parent)
@@ -49,6 +51,7 @@ RosBridge::RosBridge(QObject *parent)
     // Mission phase orchestrator: publish run requests, subscribe to live status.
     // Reliable QoS (default) matches the orchestrator's std_msgs publishers.
     _runPhasePub = _node->create_publisher<std_msgs::msg::Int32>(kRunPhaseTopic, 10);
+    _abortPub = _node->create_publisher<std_msgs::msg::Empty>(kAbortTopic, 10);
     _phaseStatusSub = _node->create_subscription<std_msgs::msg::String>(
         kStatusTopic, 10,
         [this](const std_msgs::msg::String::ConstSharedPtr &msg) { _onPhaseStatus(msg); });
@@ -62,9 +65,11 @@ RosBridge::~RosBridge()
     _fpsTimer.stop();
     _discoveryTimer.stop();
     _imageSub.reset();
+    _compressedSub.reset();
     _actuatorSub.reset();
     _phaseStatusSub.reset();
     _runPhasePub.reset();
+    _abortPub.reset();
     _node.reset();
     if (_ownsContext && rclcpp::ok()) {
         rclcpp::shutdown();
@@ -120,7 +125,7 @@ void RosBridge::refreshTopics()
     const auto topics = _node->get_topic_names_and_types();
     for (const auto &[name, types] : topics) {
         for (const auto &type : types) {
-            if (type == kImageType) {
+            if (type == kImageType || type == kCompressedType) {
                 found.append(QString::fromStdString(name));
                 break;
             }
@@ -143,18 +148,42 @@ void RosBridge::setImageTopic(const QString &topic)
     emit imageTopicChanged();
 
     _imageSub.reset();
+    _compressedSub.reset();
     _frameCounter = 0;
 
     if (!_node || topic.isEmpty()) {
         return;
     }
 
-    // Sensor data QoS: best-effort matches typical camera publishers.
-    _imageSub = _node->create_subscription<sensor_msgs::msg::Image>(
-        topic.toStdString(), rclcpp::SensorDataQoS(),
-        [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) { _onImage(msg); });
+    // A CompressedImage topic (e.g. `/cam/compressed`, published by
+    // image_transport republish) is preferred over the network since it dodges
+    // the fragmentation loss that kills large raw frames. Decide from the graph
+    // which message type this topic carries, then subscribe accordingly.
+    bool compressed = false;
+    const auto topics = _node->get_topic_names_and_types();
+    const auto it = topics.find(topic.toStdString());
+    if (it != topics.end()) {
+        for (const auto &type : it->second) {
+            if (type == kCompressedType) {
+                compressed = true;
+                break;
+            }
+        }
+    }
 
-    qCDebug(RosBridgeLog) << "subscribed to" << topic;
+    // Sensor data QoS (best-effort): compatible with both reliable and
+    // best-effort publishers, and fine for a monitoring feed.
+    if (compressed) {
+        _compressedSub = _node->create_subscription<sensor_msgs::msg::CompressedImage>(
+            topic.toStdString(), rclcpp::SensorDataQoS(),
+            [this](const sensor_msgs::msg::CompressedImage::ConstSharedPtr &msg) { _onCompressedImage(msg); });
+        qCDebug(RosBridgeLog) << "subscribed (compressed) to" << topic;
+    } else {
+        _imageSub = _node->create_subscription<sensor_msgs::msg::Image>(
+            topic.toStdString(), rclcpp::SensorDataQoS(),
+            [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) { _onImage(msg); });
+        qCDebug(RosBridgeLog) << "subscribed (raw) to" << topic;
+    }
 }
 
 void RosBridge::_onImage(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
@@ -163,6 +192,19 @@ void RosBridge::_onImage(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
     const QImage image = toQImage(*msg);
     if (!image.isNull()) {
         emit frameReceived(image);
+    }
+}
+
+void RosBridge::_onCompressedImage(const sensor_msgs::msg::CompressedImage::ConstSharedPtr &msg)
+{
+    ++_frameCounter;
+    // CompressedImage carries an encoded blob (jpeg/png). QImage::loadFromData
+    // auto-detects the format via the bundled Qt image plugins.
+    QImage image;
+    if (image.loadFromData(msg->data.data(), static_cast<int>(msg->data.size()))) {
+        emit frameReceived(image);
+    } else {
+        qCWarning(RosBridgeLog) << "failed to decode compressed image (" << msg->format.c_str() << ")";
     }
 }
 
@@ -214,6 +256,16 @@ void RosBridge::runPhase(int n)
     msg.data = n;
     _runPhasePub->publish(msg);
     qCDebug(RosBridgeLog) << "runPhase" << n << "published";
+}
+
+void RosBridge::abortMission()
+{
+    if (!_abortPub) {
+        qCWarning(RosBridgeLog) << "abortMission ignored: no publisher";
+        return;
+    }
+    _abortPub->publish(std_msgs::msg::Empty{});
+    qCDebug(RosBridgeLog) << "abortMission (command/abort) published";
 }
 
 void RosBridge::retryPhaseLink()

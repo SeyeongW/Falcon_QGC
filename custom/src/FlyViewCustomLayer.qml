@@ -58,14 +58,6 @@ Item {
         return Math.max(minimum, Math.min(maximum, value))
     }
 
-    function _clampMissionHeader() {
-        if (!missionHeader || !missionHeader.parent) {
-            return
-        }
-        missionHeader.x = Math.max(0, Math.min(missionHeader.x, missionHeader.parent.width - missionHeader.width))
-        missionHeader.y = Math.max(0, Math.min(missionHeader.y, missionHeader.parent.height - missionHeader.height))
-    }
-
     function secondsToHHMMSS(timeS) {
         var sec_num = parseInt(timeS, 10);
         var hours   = Math.floor(sec_num / 3600);
@@ -151,87 +143,121 @@ Item {
     }
 
     //-------------------------------------------------------------------------
-    //-- VTOL-GCS mission header
-    Rectangle {
+    //-- FGC panel: branding header + collapsible mission phases.
+    //   Collapsed = just the FGC header (default). The ▼ toggle drops the mission
+    //   phase list + abort controls below (scrollable, ROS build only). Drag to
+    //   move, grab a corner to resize.
+    MovablePanel {
         id:                         missionHeader
+        property bool expanded:     false
+        readonly property real collapsedHeight: ScreenTools.defaultFontPixelHeight * 4.4
+        readonly property real expandedHeight:  ScreenTools.defaultFontPixelHeight * 26
+
         x:                          parentToolInsets.leftEdgeTopInset + _toolsMargin
         y:                          parentToolInsets.topEdgeLeftInset + _toolsMargin
         width:                      ScreenTools.defaultFontPixelWidth * 38
-        height:                     ScreenTools.defaultFontPixelHeight * 4.2
-        radius:                     6
-        color:                      Qt.rgba(0.03, 0.08, 0.14, 0.90)
-        border.color:               Qt.rgba(0.22, 0.74, 0.97, 0.75)
-        border.width:               1
+        height:                     collapsedHeight
+        minWidth:                   ScreenTools.defaultFontPixelWidth * 24
+        minHeight:                  ScreenTools.defaultFontPixelHeight * 3.4
 
-        onWidthChanged:             _clampMissionHeader()
-        onHeightChanged:            _clampMissionHeader()
-        Component.onCompleted:      _clampMissionHeader()
+        // Toggling sets height imperatively (breaks the initial binding), so a
+        // later user resize still sticks.
+        onExpandedChanged:          height = expanded ? expandedHeight : collapsedHeight
 
-        RowLayout {
+        Rectangle {
             anchors.fill:           parent
-            anchors.margins:        _toolsMargin
-            spacing:                _toolsMargin
-
-            Image {
-                Layout.preferredWidth:  ScreenTools.defaultFontPixelHeight * 2.2
-                Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 2.2
-                source:                 "qrc:/Custom/res/custom_qgroundcontrol.svg"
-                fillMode:               Image.PreserveAspectFit
-                mipmap:                 true
-            }
+            radius:                 6
+            color:                  Qt.rgba(0.03, 0.08, 0.14, 0.90)
+            border.color:           Qt.rgba(0.22, 0.74, 0.97, 0.75)
+            border.width:           1
+            clip:                   true
 
             ColumnLayout {
-                Layout.fillWidth:       true
-                spacing:                0
+                anchors.fill:       parent
+                anchors.margins:    _toolsMargin
+                spacing:            _toolsMargin
 
-                QGCLabel {
-                    text:               qsTr("FALCON VTOL-GCS")
-                    color:              "white"
-                    font.bold:          true
-                    font.pointSize:     ScreenTools.defaultFontPointSize
+                // --- FGC branding header (always visible). Logo, FGC and the
+                //     status word share one vertical centre line. ---
+                RowLayout {
+                    Layout.fillWidth:       true
+                    Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 2.2
+                    spacing:                _toolsMargin
+
+                    Image {
+                        Layout.alignment:       Qt.AlignVCenter
+                        Layout.preferredWidth:  ScreenTools.defaultFontPixelHeight * 2.2
+                        Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 2.2
+                        source:                 "qrc:/Custom/res/custom_qgroundcontrol.svg"
+                        fillMode:               Image.PreserveAspectFit
+                        mipmap:                 true
+                    }
+
+                    ColumnLayout {
+                        Layout.alignment:       Qt.AlignVCenter
+                        Layout.fillWidth:       true
+                        spacing:                0
+
+                        QGCLabel {
+                            text:               qsTr("FGC")
+                            color:              "white"
+                            font.bold:          true
+                            font.pointSize:     ScreenTools.defaultFontPointSize
+                        }
+
+                        QGCLabel {
+                            visible:            _activeVehicle
+                            text:               qsTr("LIVE MISSION CONSOLE")
+                            color:              _falconCyan
+                            font.pointSize:     ScreenTools.smallFontPointSize
+                            font.letterSpacing: 1
+                        }
+                    }
+
+                    QGCLabel {
+                        Layout.alignment:     Qt.AlignRight | Qt.AlignVCenter
+                        horizontalAlignment:  Text.AlignRight
+                        text:                 _activeVehicle ? qsTr("VEHICLE") : qsTr("STANDBY")
+                        color:                _activeVehicle ? "#86EFAC" : "#FCD34D"
+                        font.bold:            true
+                        font.pointSize:       ScreenTools.smallFontPointSize
+                    }
                 }
 
-                QGCLabel {
-                    text:               _activeVehicle ? qsTr("LIVE MISSION CONSOLE") : qsTr("SIMULATION CONSOLE")
-                    color:              _falconCyan
-                    font.pointSize:     ScreenTools.smallFontPointSize
-                    font.letterSpacing: 1
+                // --- collapsible mission phase panel (ROS build only) ---
+                Loader {
+                    id:                 missionPhaseLoader
+                    Layout.fillWidth:   true
+                    Layout.fillHeight:  true
+                    visible:            missionHeader.expanded
+                    active:             missionHeader.expanded && (typeof customRosEnabled !== 'undefined') && customRosEnabled
+                    source:             active ? "qrc:/qml/Custom/Widgets/MissionPhasePanel.qml" : ""
+                }
+
+                // Bottom expand/collapse chevron — small, white, centered, like a
+                // "show more" toggle on a web page. Reserves a thin strip so it
+                // never overlaps the panel content.
+                Item {
+                    Layout.fillWidth:       true
+                    Layout.preferredHeight: ScreenTools.defaultFontPixelHeight
+
+                    QGCLabel {
+                        anchors.centerIn:   parent
+                        text:               missionHeader.expanded ? "▲" : "▼"
+                        color:              "white"
+                        opacity:            chevronMouse.containsMouse ? 1.0 : 0.55
+                        font.pointSize:     ScreenTools.smallFontPointSize
+                    }
+
+                    MouseArea {
+                        id:             chevronMouse
+                        anchors.fill:   parent
+                        hoverEnabled:   true
+                        cursorShape:    Qt.PointingHandCursor
+                        onClicked:      missionHeader.expanded = !missionHeader.expanded
+                    }
                 }
             }
-
-            Rectangle {
-                Layout.preferredWidth:  ScreenTools.defaultFontPixelWidth * 7.5
-                Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.7
-                radius:                 4
-                color:                  _activeVehicle ? Qt.rgba(0.13, 0.77, 0.37, 0.18)
-                                                       : Qt.rgba(0.96, 0.62, 0.04, 0.18)
-                border.color:           _activeVehicle ? "#22C55E" : "#F59E0B"
-                border.width:           1
-
-                QGCLabel {
-                    anchors.centerIn:   parent
-                    text:               _activeVehicle ? qsTr("VEHICLE") : qsTr("STANDBY")
-                    color:              _activeVehicle ? "#86EFAC" : "#FCD34D"
-                    font.bold:          true
-                    font.pointSize:     ScreenTools.smallFontPointSize
-                }
-            }
-        }
-
-        MouseArea {
-            anchors.fill:           parent
-            acceptedButtons:        Qt.LeftButton
-            cursorShape:            Qt.SizeAllCursor
-            preventStealing:        true
-            drag.target:            missionHeader
-            drag.axis:              Drag.XAndYAxis
-            drag.minimumX:          0
-            drag.minimumY:          0
-            drag.maximumX:          missionHeader.parent ? missionHeader.parent.width - missionHeader.width : 0
-            drag.maximumY:          missionHeader.parent ? missionHeader.parent.height - missionHeader.height : 0
-
-            onReleased:             _clampMissionHeader()
-            onCanceled:             _clampMissionHeader()
         }
     }
 
@@ -557,33 +583,25 @@ Item {
     }
 
     //-------------------------------------------------------------------------
-    //-- Mission phase orchestrator panel (VTOL-GCS, ROS build only)
-    //   Sequential phase checklist with live progress / section text, driven by
-    //   RosBridge (command/run_phase <-> command/status). Top-right corner.
-    Loader {
-        id:                     missionPhaseLoader
-        active:                 (typeof customRosEnabled !== 'undefined') && customRosEnabled
-        source:                 active ? "qrc:/qml/Custom/Widgets/MissionPhasePanel.qml" : ""
-        anchors.top:            parent.top
-        anchors.right:          parent.right
-        anchors.topMargin:      parentToolInsets.topEdgeRightInset + _toolsMargin
-        anchors.rightMargin:    _toolsMargin
-        width:                  ScreenTools.defaultFontPixelWidth * 32
-    }
-
-    //-------------------------------------------------------------------------
     //-- Recognition video panel (VTOL-GCS, ROS build only)
     //   Loaded by URL and gated on `customRosEnabled` (set from CustomPlugin)
     //   so non-ROS builds never try to import Custom.Ros.
-    Loader {
-        id:                     rosVideoLoader
-        active:                 (typeof customRosEnabled !== 'undefined') && customRosEnabled
-        source:                 active ? "qrc:/qml/Custom/Widgets/RosVideoPanel.qml" : ""
-        anchors.left:           parent.left
-        anchors.bottom:         parent.bottom
-        anchors.leftMargin:     _toolsMargin
-        anchors.bottomMargin:   _toolsMargin + parentToolInsets.bottomEdgeLeftInset
+    //   Drag to move, grab a corner to resize.
+    MovablePanel {
+        id:                     rosVideoFrame
+        visible:                (typeof customRosEnabled !== 'undefined') && customRosEnabled
+        x:                      _toolsMargin
+        y:                      (parent ? parent.height : 0) - height - _toolsMargin - parentToolInsets.bottomEdgeLeftInset
         width:                  ScreenTools.defaultFontPixelWidth * 34
         height:                 ScreenTools.defaultFontPixelHeight * 15
+        minWidth:               ScreenTools.defaultFontPixelWidth * 22
+        minHeight:              ScreenTools.defaultFontPixelHeight * 10
+
+        Loader {
+            id:                 rosVideoLoader
+            anchors.fill:       parent
+            active:             rosVideoFrame.visible
+            source:             active ? "qrc:/qml/Custom/Widgets/RosVideoPanel.qml" : ""
+        }
     }
 }
