@@ -94,13 +94,6 @@ Rectangle {
                     font.bold: true
                     Layout.fillWidth: true
                 }
-
-                QGCLabel {
-                    text: qsTr("로봇항공기 경연 임무 진행도")
-                    color: root._accent
-                    font.pointSize: ScreenTools.smallFontPointSize
-                    Layout.fillWidth: true
-                }
             }
             Rectangle {   // link indicator dot
                 width: ScreenTools.defaultFontPixelWidth * 1.1
