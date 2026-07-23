@@ -226,6 +226,9 @@ Item {
 
     PlanViewToolBar {
         id: planToolBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
         planMasterController: _planMasterController
         showRallyPointsHelp: _editingLayer === _layerRally
     }
@@ -234,8 +237,8 @@ Item {
         id: mainPlanViewArea
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: planToolBar.bottom
-        anchors.bottom: parent.bottom
+        anchors.top: parent.top
+        anchors.bottom: planToolBar.top
 
         FlightMap {
             id: editorMap
@@ -565,6 +568,11 @@ Item {
                 rightPanel.selectLayer(nodeType)
             }
 
+            function activeLayerIcon() {
+                const activeLayer = _layers.find(layer => layer.layer === _editingLayer)
+                return activeLayer ? activeLayer.icon : "/res/waypoint.svg"
+            }
+
             // Row laid out right-to-left: active icon on the right, choices expand left
             Row {
                 id:             layerRow
@@ -583,7 +591,7 @@ Item {
                         anchors.centerIn:   parent
                         width:              parent.width * 0.6
                         height:             width
-                        source:             layerSwitcher._layers.find(l => l.layer === _editingLayer)?.icon ?? "/res/waypoint.svg"
+                        source:             layerSwitcher.activeLayerIcon()
                         color:              QGroundControl.globalPalette.buttonHighlightText
                     }
 

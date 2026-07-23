@@ -23,11 +23,11 @@ Rectangle {
 
     QGCPalette { id: qgcPal }
 
-    /// Bottom single pixel divider
+    /// Top single pixel divider
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.top: parent.top
         height: 1
         color: "black"
         visible: qgcPal.globalTheme === QGCPalette.Light
@@ -44,7 +44,7 @@ Rectangle {
 
     QGCFlickable {
         id: toolsFlickable
-        anchors.bottomMargin: 1
+        anchors.topMargin: 1
         anchors.left: qgcButton.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
