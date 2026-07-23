@@ -46,9 +46,20 @@ Item {
     property real   _rightPanelWidth:       ScreenTools.defaultFontPixelWidth * 30
     property var    _mapControl:            mapControl
     property real   _widgetMargin:          ScreenTools.defaultFontPixelWidth * 0.75
+    property real   _leftPaneRatio:         0.40
+    property real   _videoPaneShare:        0.50
+    property real   _consolePaneShare:      0.50
+    readonly property real _leftPaneWidth:  width * _leftPaneRatio
+    readonly property real _paneSpacing:    Math.max(2, ScreenTools.defaultFontPixelWidth * 0.25)
+    readonly property real _topSquareSize:  Math.max(0, (_leftPaneWidth - _paneSpacing) / 2)
+    property real   _topPaneHeight:         _topSquareSize
+    readonly property real _leftPaneHeight: Math.max(0, mapHolder.height - toolbar.height)
+    readonly property real _stackedPaneHeight: Math.max(0, _leftPaneHeight - _topPaneHeight - _paneSpacing * 2)
+    readonly property real _videoPaneHeight: _stackedPaneHeight * _videoPaneShare
+    readonly property real _modelPaneHeight: _stackedPaneHeight - _videoPaneHeight
+    readonly property real _consolePaneWidth: Math.max(0, (_leftPaneWidth - _paneSpacing) * _consolePaneShare)
 
     property real   _fullItemZorder:    0
-    property real   _pipItemZorder:     QGroundControl.zOrderWidgets
 
     function _calcCenterViewPort() {
         var newToolInset = Qt.rect(0, 0, width, height)
@@ -61,57 +72,220 @@ Item {
 
     QGCToolInsets {
         id:                     _toolInsets
-        bottomEdgeLeftInset:    Math.max(toolbar.height, _pipView.bottomEdgeLeftInset)
-        bottomEdgeCenterInset:  toolbar.height
-        bottomEdgeRightInset:   toolbar.height
-        leftEdgeBottomInset:    _pipView.leftEdgeBottomInset
+        bottomEdgeLeftInset:    0
+        bottomEdgeCenterInset:  0
+        bottomEdgeRightInset:   0
+        leftEdgeBottomInset:    0
     }
 
     Item {
         id:                 mapHolder
         anchors.fill:       parent
 
+        Rectangle {
+            anchors.fill:   parent
+            color:          "#071526"
+        }
+
+        Item {
+            id:                     leftPane
+            anchors.left:           parent.left
+            anchors.top:            parent.top
+            anchors.bottom:         parent.bottom
+            anchors.bottomMargin:   toolbar.height
+            width:                  _leftPaneWidth
+        }
+
+        Item {
+            id:                     leftInfoPane
+            anchors.left:           leftPane.left
+            anchors.right:          leftPane.right
+            anchors.top:            leftPane.top
+            anchors.bottom:         videoPane.top
+            anchors.bottomMargin:   _paneSpacing
+            clip:                   true
+        }
+
+        Item {
+            id:                     videoPane
+            anchors.left:           leftPane.left
+            anchors.right:          leftPane.right
+            anchors.bottom:         leftPane.bottom
+            height:                 _videoPaneHeight
+            clip:                   true
+        }
+
+        Item {
+            id:                     mapPane
+            anchors.left:           leftPane.right
+            anchors.leftMargin:     _paneSpacing
+            anchors.right:          parent.right
+            anchors.top:            parent.top
+            anchors.bottom:         parent.bottom
+            anchors.bottomMargin:   toolbar.height
+            clip:                   true
+        }
+
+        Rectangle {
+            id:                     topPaneDivider
+            anchors.left:           leftPane.left
+            anchors.right:          leftPane.right
+            y:                      _topPaneHeight
+            height:                 _paneSpacing
+            color:                  "#38BDF8"
+            opacity:                0.65
+            z:                      QGroundControl.zOrderWidgets
+
+            MouseArea {
+                anchors.centerIn:   parent
+                width:              parent.width
+                height:             Math.max(parent.height, ScreenTools.defaultFontPixelHeight)
+                hoverEnabled:       true
+                cursorShape:        Qt.SplitVCursor
+
+                onPositionChanged: (mouse) => {
+                    if (!pressed || _leftPaneHeight <= 0) {
+                        return
+                    }
+                    const point = mapToItem(leftPane, mouse.x, mouse.y)
+                    const minimumStackPaneHeight = ScreenTools.defaultFontPixelHeight * 6
+                    _topPaneHeight = Math.max(
+                                         ScreenTools.defaultFontPixelHeight * 8,
+                                         Math.min(
+                                             _leftPaneHeight - _paneSpacing * 2 - minimumStackPaneHeight * 2,
+                                             point.y
+                                         )
+                                     )
+                }
+            }
+        }
+
+        Rectangle {
+            id:                     consolePaneDivider
+            x:                      _consolePaneWidth
+            y:                      0
+            width:                  _paneSpacing
+            height:                 _topPaneHeight
+            color:                  "#38BDF8"
+            opacity:                0.65
+            z:                      QGroundControl.zOrderWidgets
+
+            MouseArea {
+                anchors.centerIn:   parent
+                width:              Math.max(parent.width, ScreenTools.defaultFontPixelWidth * 2)
+                height:             parent.height
+                hoverEnabled:       true
+                cursorShape:        Qt.SplitHCursor
+
+                onPositionChanged: (mouse) => {
+                    if (!pressed || _leftPaneWidth <= _paneSpacing) {
+                        return
+                    }
+                    const point = mapToItem(leftPane, mouse.x, mouse.y)
+                    _consolePaneShare = Math.max(
+                                            0.25,
+                                            Math.min(0.75, point.x / (_leftPaneWidth - _paneSpacing))
+                                        )
+                }
+            }
+        }
+
+        Rectangle {
+            id:                     verticalPaneDivider
+            anchors.left:           leftPane.right
+            anchors.top:            parent.top
+            anchors.bottom:         parent.bottom
+            anchors.bottomMargin:   toolbar.height
+            width:                  _paneSpacing
+            color:                  "#38BDF8"
+            opacity:                0.65
+            z:                      QGroundControl.zOrderWidgets
+
+            MouseArea {
+                anchors.centerIn:   parent
+                width:              Math.max(parent.width, ScreenTools.defaultFontPixelWidth * 2)
+                height:             parent.height
+                hoverEnabled:       true
+                cursorShape:        Qt.SplitHCursor
+
+                onPositionChanged: (mouse) => {
+                    if (!pressed || mapHolder.width <= 0) {
+                        return
+                    }
+                    const point = mapToItem(mapHolder, mouse.x, mouse.y)
+                    _leftPaneRatio = Math.max(0.25, Math.min(0.65, point.x / mapHolder.width))
+                }
+            }
+        }
+
+        Rectangle {
+            id:                     videoPaneDivider
+            anchors.left:           leftPane.left
+            anchors.right:          leftPane.right
+            anchors.bottom:         videoPane.top
+            height:                 _paneSpacing
+            color:                  "#38BDF8"
+            opacity:                0.65
+            z:                      QGroundControl.zOrderWidgets
+
+            MouseArea {
+                anchors.centerIn:   parent
+                width:              parent.width
+                height:             Math.max(parent.height, ScreenTools.defaultFontPixelHeight)
+                hoverEnabled:       true
+                cursorShape:        Qt.SplitVCursor
+
+                onPositionChanged: (mouse) => {
+                    if (!pressed || _stackedPaneHeight <= 0) {
+                        return
+                    }
+                    const point = mapToItem(leftPane, mouse.x, mouse.y)
+                    const requestedVideoHeight = leftPane.height - point.y
+                    _videoPaneShare = Math.max(0.20, Math.min(0.80, requestedVideoHeight / _stackedPaneHeight))
+                }
+            }
+        }
+
+        PipView {
+            id:                     mapLayout
+            parent:                 mapPane
+            anchors.fill:           parent
+            item1IsFullSettingsKey: "MainFlyWindowIsMap"
+            item1:                  mapControl
+            show:                   false
+        }
+
         FlyViewMap {
             id:                     mapControl
             planMasterController:   _planController
             rightPanelWidth:        ScreenTools.defaultFontPixelHeight * 9
-            pipView:                _pipView
-            pipMode:                !_mainWindowIsMap
-            toolInsets:             customOverlay.totalToolInsets
+            pipView:                mapLayout
+            pipMode:                false
+            toolInsets:             widgetLayer.totalToolInsets
             mapName:                "FlightDisplayView"
             enabled:                !_is3DMode
             visible:                !_is3DMode
         }
 
-        FlyViewVideo {
-            id:         videoControl
-            pipView:    _pipView
+        PipView {
+            id:                     videoLayout
+            parent:                 videoPane
+            anchors.fill:           parent
+            item1IsFullSettingsKey: "MainFlyWindowIsVideo"
+            item1:                  videoControl
+            show:                   false
         }
 
-        PipView {
-            id:                     _pipView
-            anchors.left:           parent.left
-            anchors.bottom:         parent.bottom
-            anchors.margins:        _toolsMargin
-            item1IsFullSettingsKey: "MainFlyWindowIsMap"
-            item1:                  mapControl
-            item2:                  QGroundControl.videoManager.hasVideo ? videoControl : null
-            show:                   QGroundControl.videoManager.hasVideo && !QGroundControl.videoManager.fullScreen &&
-                                        (videoControl.pipState.state === videoControl.pipState.pipState || mapControl.pipState.state === mapControl.pipState.pipState)
-            z:                      QGroundControl.zOrderWidgets
-
-            property real leftEdgeBottomInset: visible ? width + anchors.margins : 0
-            property real bottomEdgeLeftInset: visible ? height + anchors.margins : 0
+        FlyViewVideo {
+            id:         videoControl
+            pipView:    videoLayout
         }
 
         FlyViewWidgetLayer {
             id:                     widgetLayer
-            anchors.top:            parent.top
-            anchors.bottom:         parent.bottom
-            anchors.left:           parent.left
-            anchors.right:          guidedValueSlider.visible ? guidedValueSlider.left : parent.right
+            parent:                 mapPane
+            anchors.fill:           parent
             anchors.margins:        _widgetMargin
-            anchors.bottomMargin:   toolbar.height + _widgetMargin
             z:                      _fullItemZorder + 2
             parentToolInsets:       _toolInsets
             mapControl:             _mapControl
@@ -120,20 +294,23 @@ Item {
 
         FlyViewCustomLayer {
             id:                 customOverlay
-            anchors.fill:       widgetLayer
+            parent:             leftInfoPane
+            anchors.fill:       parent
             z:                  _fullItemZorder + 2
-            parentToolInsets:   widgetLayer.totalToolInsets
+            parentToolInsets:   _toolInsets
             mapControl:         _mapControl
+            lowerPanelHeight:   _modelPaneHeight
+            topPanelHeight:     _topPaneHeight
+            consolePanelWidth:  _consolePaneWidth
+            paneSpacing:        _paneSpacing
             visible:            !QGroundControl.videoManager.fullScreen
         }
 
         // Development tool for visualizing the insets for a paticular layer, show if needed
         FlyViewInsetViewer {
             id:                     widgetLayerInsetViewer
-            anchors.top:            parent.top
-            anchors.bottom:         parent.bottom
-            anchors.left:           parent.left
-            anchors.right:          guidedValueSlider.visible ? guidedValueSlider.left : parent.right
+            parent:                 mapPane
+            anchors.fill:           parent
             z:                      widgetLayer.z + 1
             insetsToView:           widgetLayer.totalToolInsets
             visible:                false
@@ -158,6 +335,7 @@ Item {
 
         Loader {
             id:           viewer3DLoader
+            parent:       mapPane
             z:            1
             anchors.fill: parent
             visible:      _is3DMode
