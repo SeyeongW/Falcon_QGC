@@ -408,7 +408,7 @@ ApplicationWindow {
             id:             toolDrawerToolbar
             anchors.left:   parent.left
             anchors.right:  parent.right
-            anchors.top:    parent.top
+            anchors.bottom: parent.bottom
             height:         ScreenTools.toolbarHeight
             color:          qgcPal.toolbarBackground
 
@@ -441,8 +441,8 @@ ApplicationWindow {
             id:             toolDrawerLoader
             anchors.left:   parent.left
             anchors.right:  parent.right
-            anchors.top:    toolDrawerToolbar.bottom
-            anchors.bottom: parent.bottom
+            anchors.top:    parent.top
+            anchors.bottom: toolDrawerToolbar.top
         }
     }
 
@@ -569,8 +569,7 @@ ApplicationWindow {
     Popup {
         id:             indicatorDrawer
         x:              calcXPosition()
-        y:              flyView.visible ? mainWindow.contentItem.height - ScreenTools.toolbarHeight - _margins - height
-                                        : ScreenTools.toolbarHeight + _margins
+        y:              mainWindow.contentItem.height - ScreenTools.toolbarHeight - _margins - height
         leftInset:      0
         rightInset:     0
         topInset:       0
