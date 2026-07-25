@@ -72,6 +72,13 @@ endif()
 
 # Set resource aliases for custom widgets
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomArtificialHorizon.qml PROPERTIES QT_RESOURCE_ALIAS CustomArtificialHorizon.qml)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/Falcon_aircraft.qml PROPERTIES QT_RESOURCE_ALIAS FalconAircraft.qml)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/aircraft_Body_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/aircraft_Body_mesh.mesh)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_A_001_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_A_001_mesh.mesh)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_A_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_A_mesh.mesh)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_001_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_B_001_mesh.mesh)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_002_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_B_002_mesh.mesh)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_B_mesh.mesh)
 qgc_set_qt_resource_alias(
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ControlSurfaceWidget.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomAttitudeWidget.qml
@@ -81,6 +88,8 @@ qgc_set_qt_resource_alias(
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomSignalStrength.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomToolBarButton.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomVehicleButton.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRoute3DView.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRouteView.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MovablePanel.qml
     ${CUSTOM_ROS_QML_FILES}
 )
@@ -89,6 +98,9 @@ qt_add_qml_module(CustomModule
     URI Custom.Widgets
     VERSION 1.0
     RESOURCE_PREFIX /qml
+    IMPORTS
+        QtQuick
+        QtQuick3D
     QML_FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ControlSurfaceWidget.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomArtificialHorizon.qml
@@ -99,10 +111,22 @@ qt_add_qml_module(CustomModule
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomSignalStrength.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomToolBarButton.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomVehicleButton.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/Falcon_aircraft.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRoute3DView.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRouteView.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MovablePanel.qml
         ${CUSTOM_ROS_QML_FILES}
+    RESOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/aircraft_Body_mesh.mesh
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_A_001_mesh.mesh
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_A_mesh.mesh
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_001_mesh.mesh
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_002_mesh.mesh
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_mesh.mesh
     NO_PLUGIN
 )
+
+target_link_libraries(CustomModule PRIVATE Qt6::Quick3D)
 
 # ============================================================================
 # Custom Plan Module (PerimeterScan map visual + editor)

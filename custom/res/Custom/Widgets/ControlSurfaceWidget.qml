@@ -44,47 +44,17 @@ Item {
     // Max visual hinge tilt (deg) for up/down surfaces, and swing for the rudder.
     property real maxTiltAngle:   48
     property real maxRudderAngle: 26
-    property real aileronVisualGain: 1.4
     property real aircraftVisualYOffsetRatio: -0.08
 
-    // Hinge positions within the aspect-fitted aircraft image.
-    property real leftAileronHingeXRatio:  0.21
-    property real rightAileronHingeXRatio: 0.79
-    property real aileronHingeYRatio:      0.52
-
     // Propeller hub centers measured from each PNG's non-transparent bounding box.
-    property real liftPropFLHubXRatio: 0.3450
-    property real liftPropFLHubYRatio: 0.3255
-    property real liftPropFRHubXRatio: 0.6550
-    property real liftPropFRHubYRatio: 0.3255
-    property real liftPropRLHubXRatio: 0.3455
-    property real liftPropRLHubYRatio: 0.5615
-    property real liftPropRRHubXRatio: 0.6550
-    property real liftPropRRHubYRatio: 0.5605
     property real pusherPropHubXRatio: 0.5000
     property real pusherPropHubYRatio: 0.7195
 
-    property real liftPropFLAngle: 0
-    property real liftPropFRAngle: 0
-    property real liftPropRLAngle: 0
-    property real liftPropRRAngle: 0
     property real pusherPropAngle: 0
 
     property real propellerRunThreshold: 0.05
     property real maxPropellerDegreesPerSecond: 1080
 
-    readonly property bool anyMotorRunning: motorMagnitude(liftThrottleFL) > propellerRunThreshold
-                                            || motorMagnitude(liftThrottleFR) > propellerRunThreshold
-                                            || motorMagnitude(liftThrottleRL) > propellerRunThreshold
-                                            || motorMagnitude(liftThrottleRR) > propellerRunThreshold
-                                            || motorMagnitude(pusherThrottle) > propellerRunThreshold
-
-    // Temporary visualization directions. Confirm the aircraft's actual CW/CCW
-    // motor layout before replacing these values.
-    property int liftPropFLDirection: 1
-    property int liftPropFRDirection: -1
-    property int liftPropRLDirection: -1
-    property int liftPropRRDirection: 1
     property int pusherPropDirection: 1
 
     function clamp(value, minimum, maximum) {
@@ -121,17 +91,11 @@ Item {
         id: propellerTimer
         interval: 16
         repeat: true
-        running: root.actuatorDataValid && root.vehicleArmed && root.anyMotorRunning
+        running: root.actuatorDataValid
+                 && root.vehicleArmed
+                 && root.motorMagnitude(root.pusherThrottle) > root.propellerRunThreshold
 
         onTriggered: {
-            root.liftPropFLAngle = root.nextPropellerAngle(root.liftPropFLAngle, root.liftPropFLDirection,
-                                                           root.liftThrottleFL, propellerTimer.interval)
-            root.liftPropFRAngle = root.nextPropellerAngle(root.liftPropFRAngle, root.liftPropFRDirection,
-                                                           root.liftThrottleFR, propellerTimer.interval)
-            root.liftPropRLAngle = root.nextPropellerAngle(root.liftPropRLAngle, root.liftPropRLDirection,
-                                                           root.liftThrottleRL, propellerTimer.interval)
-            root.liftPropRRAngle = root.nextPropellerAngle(root.liftPropRRAngle, root.liftPropRRDirection,
-                                                           root.liftThrottleRR, propellerTimer.interval)
             root.pusherPropAngle = root.nextPropellerAngle(root.pusherPropAngle, root.pusherPropDirection,
                                                            root.pusherThrottle, propellerTimer.interval)
         }
@@ -258,160 +222,6 @@ Item {
             Rotor { width: plane.s * 0.18; height: width
                     x: plane.s * 0.72 - width / 2; y: plane.s * 0.72 - height / 2
                     active: !root.fixedWingMode; throttle: root.liftThrottleRR }
-        }
-
-        // ---- Airframe (drawn back-to-front) ----
-        Image {
-            anchors.fill: parent
-            source: "/custom/img/aircraft_body.png"
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            antialiasing: true
-        }
-
-        Image {
-            id: leftAileronImage
-            anchors.fill: parent
-            source: "/custom/img/aileron_left.png"
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            antialiasing: true
-
-            transform: Rotation {
-                origin.x: (leftAileronImage.width - leftAileronImage.paintedWidth) / 2
-                          + leftAileronImage.paintedWidth * root.leftAileronHingeXRatio
-                origin.y: (leftAileronImage.height - leftAileronImage.paintedHeight) / 2
-                          + leftAileronImage.paintedHeight * root.aileronHingeYRatio
-                axis.x: 1
-                axis.y: 0
-                axis.z: 0
-                angle: Math.max(-70, Math.min(70, root.aileronLeftDeflection * root.maxTiltAngle * root.aileronVisualGain))
-                Behavior on angle { NumberAnimation { duration: 130 } }
-            }
-        }
-
-        Image {
-            id: rightAileronImage
-            anchors.fill: parent
-            source: "/custom/img/aileron_right.png"
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            antialiasing: true
-
-            transform: Rotation {
-                origin.x: (rightAileronImage.width - rightAileronImage.paintedWidth) / 2
-                          + rightAileronImage.paintedWidth * root.rightAileronHingeXRatio
-                origin.y: (rightAileronImage.height - rightAileronImage.paintedHeight) / 2
-                          + rightAileronImage.paintedHeight * root.aileronHingeYRatio
-                axis.x: 1
-                axis.y: 0
-                axis.z: 0
-                angle: Math.max(-70, Math.min(70, root.aileronRightDeflection * root.maxTiltAngle * root.aileronVisualGain))
-                Behavior on angle { NumberAnimation { duration: 130 } }
-            }
-        }
-
-        // Ruddervator visualization is temporarily fixed at neutral until the
-        // final hinge-axis representation and actual aircraft servo mapping are implemented.
-        Image {
-            id: leftRuddervatorImage
-            anchors.fill: parent
-            source: "/custom/img/ruddervator_left.png"
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            antialiasing: true
-            opacity: 1.0
-        }
-
-        Image {
-            id: rightRuddervatorImage
-            anchors.fill: parent
-            source: "/custom/img/ruddervator_right.png"
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            antialiasing: true
-            opacity: 1.0
-        }
-
-        Image {
-            id: liftPropFLImage
-            anchors.fill: parent
-            source: "/custom/img/lift_prop_fl.png"
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            antialiasing: true
-            opacity: 1.0
-
-            transform: Rotation {
-                origin.x: (liftPropFLImage.width - liftPropFLImage.paintedWidth) / 2
-                          + liftPropFLImage.paintedWidth * root.liftPropFLHubXRatio
-                origin.y: (liftPropFLImage.height - liftPropFLImage.paintedHeight) / 2
-                          + liftPropFLImage.paintedHeight * root.liftPropFLHubYRatio
-                angle: root.liftPropFLAngle
-            }
-        }
-
-        Image {
-            id: liftPropFRImage
-            anchors.fill: parent
-            source: "/custom/img/lift_prop_fr.png"
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            antialiasing: true
-            opacity: 1.0
-
-            transform: Rotation {
-                origin.x: (liftPropFRImage.width - liftPropFRImage.paintedWidth) / 2
-                          + liftPropFRImage.paintedWidth * root.liftPropFRHubXRatio
-                origin.y: (liftPropFRImage.height - liftPropFRImage.paintedHeight) / 2
-                          + liftPropFRImage.paintedHeight * root.liftPropFRHubYRatio
-                angle: root.liftPropFRAngle
-            }
-        }
-
-        Image {
-            id: liftPropRLImage
-            anchors.fill: parent
-            source: "/custom/img/lift_prop_rl.png"
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            antialiasing: true
-            opacity: 1.0
-
-            transform: Rotation {
-                origin.x: (liftPropRLImage.width - liftPropRLImage.paintedWidth) / 2
-                          + liftPropRLImage.paintedWidth * root.liftPropRLHubXRatio
-                origin.y: (liftPropRLImage.height - liftPropRLImage.paintedHeight) / 2
-                          + liftPropRLImage.paintedHeight * root.liftPropRLHubYRatio
-                angle: root.liftPropRLAngle
-            }
-        }
-
-        Image {
-            id: liftPropRRImage
-            anchors.fill: parent
-            source: "/custom/img/lift_prop_rr.png"
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            antialiasing: true
-            opacity: 1.0
-
-            transform: Rotation {
-                origin.x: (liftPropRRImage.width - liftPropRRImage.paintedWidth) / 2
-                          + liftPropRRImage.paintedWidth * root.liftPropRRHubXRatio
-                origin.y: (liftPropRRImage.height - liftPropRRImage.paintedHeight) / 2
-                          + liftPropRRImage.paintedHeight * root.liftPropRRHubYRatio
-                angle: root.liftPropRRAngle
-            }
         }
 
         // The pusher's screen-plane rotation is a simplified indication that the

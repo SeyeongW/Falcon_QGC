@@ -112,8 +112,9 @@ Item {
         property bool leftHandedMode:          QGroundControl.settingsManager.appSettings.virtualJoystickLeftHandedMode.rawValue
         property bool _virtualJoystickEnabled: QGroundControl.settingsManager.appSettings.virtualJoystick.rawValue
         property real bottomEdgeRightInset:    parent.height-y
-        property var  _pipViewMargin:          _pipView.visible ? parentToolInsets.bottomEdgeLeftInset + ScreenTools.defaultFontPixelHeight * 2 :
-                                               bottomRightRowLayout.height + ScreenTools.defaultFontPixelHeight * 1.5
+        property var  _pipViewMargin:          typeof _pipView !== "undefined" && _pipView && _pipView.visible
+                                               ? parentToolInsets.bottomEdgeLeftInset + ScreenTools.defaultFontPixelHeight * 2
+                                               : bottomRightRowLayout.height + ScreenTools.defaultFontPixelHeight * 1.5
 
         property var  bottomLoaderMargin:      _pipViewMargin >= parent.height / 2 ? parent.height / 2 : _pipViewMargin
 

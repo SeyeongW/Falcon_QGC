@@ -43,6 +43,12 @@ Rectangle {
     readonly property int    _activePhase: RosBridge.phase
     readonly property var    _done:       RosBridge.phaseDone
     readonly property bool   _busy:       _state === "running"
+    readonly property string currentPhaseText: {
+        if (!_linkOk || _activePhase < 0 || _activePhase >= _phases.length) {
+            return "--"
+        }
+        return qsTr("Phase %1 · %2").arg(_activePhase).arg(_phases[_activePhase].title)
+    }
 
     // Connection state machine: attempt to reach the orchestrator for up to 60 s;
     // if command/status never arrives, surface a red "연결 실패" + a retry button.

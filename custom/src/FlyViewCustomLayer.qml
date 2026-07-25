@@ -16,10 +16,14 @@ Item {
     property real topPanelHeight
     property real consolePanelWidth
     property real paneSpacing
+    property bool use3DRouteView: true
+    property bool force3DVisibleForDebug: false
 
     readonly property string noGPS:         qsTr("NO GPS")
     readonly property real   indicatorValueWidth:   ScreenTools.defaultFontPixelWidth * 7
     property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
+    property var    _missionController:     (typeof globals !== "undefined" && globals.planMasterControllerFlyView)
+                                              ? globals.planMasterControllerFlyView.missionController : null
     property real   _indicatorDiameter:     ScreenTools.defaultFontPixelWidth * 18
     property real   _indicatorsHeight:      ScreenTools.defaultFontPixelHeight
     property var    _sepColor:              qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.5) : Qt.rgba(1,1,1,0.5)
@@ -208,7 +212,7 @@ Item {
                     Layout.fillWidth:   true
                     Layout.fillHeight:  true
                     visible:            missionHeader.expanded
-                    active:             missionHeader.expanded && (typeof customRosEnabled !== 'undefined') && customRosEnabled
+                    active:             (typeof customRosEnabled !== 'undefined') && customRosEnabled
                     source:             active ? "qrc:/qml/Custom/Widgets/MissionPhasePanel.qml" : ""
                 }
 
@@ -341,6 +345,237 @@ Item {
             border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
             border.width:           1
             clip:                   true
+
+            readonly property bool route3DReady: root.use3DRouteView
+                                                 && route3DLoader.status === Loader.Ready
+                                                 && route3DLoader.item !== null
+            readonly property bool route3DActive: route3DReady
+                                                  && (root.force3DVisibleForDebug
+                                                      || route3DLoader.item.routeDataValid)
+
+            function logRoute3DDebugState(reason) {
+                const loaderHasItem = route3DLoader.item !== null
+                const routeDataValid = loaderHasItem
+                        ? route3DLoader.item.routeDataValid
+                        : false
+                console.log("[MissionRoute3D Debug]", reason,
+                            "use3DRouteView:", root.use3DRouteView,
+                            "force3DVisibleForDebug:", root.force3DVisibleForDebug,
+                            "loader.status:", route3DLoader.status,
+                            "loader.source:", route3DLoader.source,
+                            "loader.item:", loaderHasItem,
+                            "item.routeDataValid:", routeDataValid,
+                            "3D view visible:", route3DLoader.visible,
+                            "MissionRouteView.visible:", missionRouteView.visible,
+                            "2D fallback visible:", !controlSurfacePanel.route3DActive,
+                            "loader.opacity:", route3DLoader.opacity,
+                            "loader.z:", route3DLoader.z,
+                            "loader size:", route3DLoader.width, "x", route3DLoader.height)
+            }
+
+            MissionRouteView {
+                id:                missionRouteView
+                anchors.fill:      parent
+                anchors.margins:   _toolsMargin
+                z:                 0
+                visible:           true
+                missionController: root._missionController
+                activeVehicle:     root._activeVehicle
+                missionAvailable:  root._activeVehicle ? true : false
+                phaseText:         missionPhaseLoader.status === Loader.Ready
+                                   && missionPhaseLoader.item
+                                   ? missionPhaseLoader.item.currentPhaseText
+                                   : "--"
+            }
+
+            Loader {
+                id:      route3DLoader
+                x:       missionRouteView.x
+                y:       missionRouteView.y
+                width:   missionRouteView.routeAreaWidth
+                height:  missionRouteView.height
+                active:  root.use3DRouteView
+                visible: controlSurfacePanel.route3DActive
+                opacity: 1
+                z:       1
+                source:  active ? "qrc:/qml/Custom/Widgets/MissionRoute3DView.qml" : ""
+
+                onStatusChanged: {
+                    console.log("[MissionRoute3D Debug] Loader status changed:",
+                                status,
+                                "source:", source,
+                                "item:", item !== null)
+                    if (status === Loader.Error) {
+                        console.error("[MissionRoute3D Debug] Loader.Error for",
+                                      source,
+                                      "- check the adjacent QML error in Application Output")
+                    }
+                    Qt.callLater(function() {
+                        controlSurfacePanel.logRoute3DDebugState("Loader.onStatusChanged")
+                    })
+                }
+
+                onLoaded: {
+                    item.missionOccurrences = Qt.binding(function() {
+                        return missionRouteView.missionOccurrences
+                    })
+                    item.physicalWaypointGroups = Qt.binding(function() {
+                        return missionRouteView.physicalWaypointGroups
+                    })
+                    item.traversalOccurrences = Qt.binding(function() {
+                        return missionRouteView.traversalOccurrences
+                    })
+                    item.missionProgressRevision = Qt.binding(function() {
+                        return missionRouteView.missionProgressRevision
+                    })
+                    item.activeVehicle = Qt.binding(function() {
+                        return root._activeVehicle
+                    })
+                    item.missionController = Qt.binding(function() {
+                        return root._missionController
+                    })
+                    item.missionAvailable = Qt.binding(function() {
+                        return root._activeVehicle ? true : false
+                    })
+                    item.activeWaypointIndex = Qt.binding(function() {
+                        return missionRouteView.activeWaypointIndex
+                    })
+                    item.currentLegIndex = Qt.binding(function() {
+                        return missionRouteView.currentLegIndex
+                    })
+                    item.currentLegProgress = Qt.binding(function() {
+                        return missionRouteView.currentLegProgress
+                    })
+                    item.waypointStates = Qt.binding(function() {
+                        return missionRouteView.waypointStates
+                    })
+                    Qt.callLater(function() {
+                        item.logDebugState("Loader.onLoaded")
+                        controlSurfacePanel.logRoute3DDebugState("Loader.onLoaded")
+                    })
+                }
+            }
+
+            Connections {
+                target: route3DLoader.item
+                ignoreUnknownSignals: true
+
+                function onRouteDataValidChanged() {
+                    Qt.callLater(function() {
+                        controlSurfacePanel.logRoute3DDebugState(
+                                    "MissionRoute3DView.routeDataValid changed")
+                    })
+                }
+            }
+
+            onRoute3DActiveChanged: {
+                Qt.callLater(function() {
+                    controlSurfacePanel.logRoute3DDebugState("route3DActive changed")
+                })
+            }
+
+            Component.onCompleted: {
+                Qt.callLater(function() {
+                    controlSurfacePanel.logRoute3DDebugState(
+                                "controlSurfacePanel completed")
+                })
+            }
+
+            Item {
+                id: aircraftImageLayers
+
+                readonly property real layerSize: Math.min(56, missionRouteView.routeAreaWidth * 0.12)
+                readonly property real routeLeft: missionRouteView.x
+                readonly property real routeRight: routeLeft + missionRouteView.routeAreaWidth
+                readonly property real routePointX: routeLeft + missionRouteView.aircraftPoint.x
+                readonly property real routePointY: missionRouteView.y + missionRouteView.aircraftPoint.y
+                readonly property real routeClearance: Math.max(_toolsMargin,
+                                                                missionRouteView.routeAreaWidth * 0.015)
+                readonly property bool placeRightOfRoute: routePointX + routeClearance + width
+                                                          <= routeRight - _toolsMargin
+
+                visible: !controlSurfacePanel.route3DActive
+                         && missionRouteView.hasMissionData
+                         && missionRouteView.routeDataValid
+                width:   layerSize
+                height:  layerSize
+                x:       Math.max(routeLeft + _toolsMargin,
+                                  Math.min(routeRight - width - _toolsMargin,
+                                           placeRightOfRoute
+                                           ? routePointX + routeClearance
+                                           : routePointX - width - routeClearance))
+                y:       Math.max(_toolsMargin,
+                                  Math.min(parent.height - height - _toolsMargin,
+                                           routePointY - (height / 2)))
+
+                Behavior on x {
+                    NumberAnimation {
+                        duration:    150
+                        easing.type: Easing.OutQuad
+                    }
+                }
+
+                Behavior on y {
+                    NumberAnimation {
+                        duration:    150
+                        easing.type: Easing.OutQuad
+                    }
+                }
+
+                Image {
+                    anchors.fill:        parent
+                    source:              "/custom/img/aircraft_iso.png"
+                    fillMode:            Image.PreserveAspectFit
+                    horizontalAlignment: Image.AlignHCenter
+                    verticalAlignment:   Image.AlignVCenter
+                    mipmap:              true
+                }
+
+                Image {
+                    anchors.fill:        parent
+                    source:              "/custom/img/lift_prop_fl.png"
+                    fillMode:            Image.PreserveAspectFit
+                    horizontalAlignment: Image.AlignHCenter
+                    verticalAlignment:   Image.AlignVCenter
+                    mipmap:              true
+                }
+
+                Image {
+                    anchors.fill:        parent
+                    source:              "/custom/img/lift_prop_fr.png"
+                    fillMode:            Image.PreserveAspectFit
+                    horizontalAlignment: Image.AlignHCenter
+                    verticalAlignment:   Image.AlignVCenter
+                    mipmap:              true
+                }
+
+                Image {
+                    anchors.fill:        parent
+                    source:              "/custom/img/lift_prop_rl.png"
+                    fillMode:            Image.PreserveAspectFit
+                    horizontalAlignment: Image.AlignHCenter
+                    verticalAlignment:   Image.AlignVCenter
+                    mipmap:              true
+                }
+
+                Image {
+                    anchors.fill:        parent
+                    source:              "/custom/img/lift_prop_rr.png"
+                    fillMode:            Image.PreserveAspectFit
+                    horizontalAlignment: Image.AlignHCenter
+                    verticalAlignment:   Image.AlignVCenter
+                    mipmap:              true
+                }
+
+                Image {
+                    anchors.fill:        parent
+                    source:              "/custom/img/pusher_prop.png"
+                    fillMode:            Image.PreserveAspectFit
+                    horizontalAlignment: Image.AlignHCenter
+                    verticalAlignment:   Image.AlignVCenter
+                    mipmap:              true
+                }
+            }
         }
     }
 
