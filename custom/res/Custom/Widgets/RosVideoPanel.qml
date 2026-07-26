@@ -113,6 +113,13 @@ Rectangle {
                 anchors.fill: parent
             }
 
+            // AR waypoint + path overlay, projected onto the live camera feed.
+            ARWaypointOverlay {
+                id: arOverlay
+                anchors.fill: parent
+                visible: RosBridge.imageFps > 0
+            }
+
             QGCLabel {
                 anchors.centerIn: parent
                 visible: RosBridge.imageTopic === "" || RosBridge.imageFps === 0

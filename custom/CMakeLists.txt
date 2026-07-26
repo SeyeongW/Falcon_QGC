@@ -80,6 +80,7 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_002_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_B_002_mesh.mesh)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_B_mesh.mesh)
 qgc_set_qt_resource_alias(
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ARWaypointOverlay.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ControlSurfaceWidget.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomAttitudeWidget.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomIconButton.qml
@@ -102,6 +103,7 @@ qt_add_qml_module(CustomModule
         QtQuick
         QtQuick3D
     QML_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ARWaypointOverlay.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ControlSurfaceWidget.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomArtificialHorizon.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomAttitudeWidget.qml
