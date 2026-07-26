@@ -37,6 +37,10 @@ Item {
     property real     currentLegProgress:  0.0
     property vector3d aircraftPosition:    Qt.vector3d(0, 0, 0)
     property real     aircraftHeading:     0
+    property real     aircraftRoll:        (activeVehicle && activeVehicle.roll && isFinite(activeVehicle.roll.rawValue))
+                                               ? activeVehicle.roll.rawValue : 0
+    property real     aircraftPitch:       (activeVehicle && activeVehicle.pitch && isFinite(activeVehicle.pitch.rawValue))
+                                               ? activeVehicle.pitch.rawValue : 0
     property real     aircraftModelScale:  4.5
     property vector3d aircraftModelRotationOffset: Qt.vector3d(0, -90, 0)
     property var      waypointStates:      []
@@ -1296,7 +1300,12 @@ Item {
 
             visible: root.routeDataValid
             position: root.aircraftPosition
+            // Body attitude from telemetry. Parent local axes are the body axes
+            // (X right, Y up, Z forward), so pitch maps to X and roll to Z. Signs
+            // are negated to match aircraft convention (nose up / right wing down).
+            eulerRotation.x: -root.aircraftPitch
             eulerRotation.y: root.aircraftHeading
+            eulerRotation.z: -root.aircraftRoll
             scale: Qt.vector3d(root.aircraftModelScale,
                                root.aircraftModelScale,
                                root.aircraftModelScale)

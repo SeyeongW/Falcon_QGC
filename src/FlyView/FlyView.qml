@@ -61,6 +61,13 @@ Item {
 
     property real   _fullItemZorder:    0
 
+    // --- Mission-phase adaptive ("active") layout ---------------------------
+    // When enabled, the pane split ratios follow the active mission phase so the
+    // GCS emphasizes what matters at each stage (status on takeoff, map on
+    // cruise, video on target approach). A manual divider drag pins the layout by
+    // switching this off; the AUTO toggle turns it back on.
+    property bool   phaseAdaptiveLayout: true
+
     function _calcCenterViewPort() {
         var newToolInset = Qt.rect(0, 0, width, height)
         toolstrip.adjustToolInset(newToolInset)
@@ -68,6 +75,59 @@ Item {
 
     function dropMainStatusIndicatorTool() {
         toolbar.dropMainStatusIndicatorTool();
+    }
+
+    // Per-phase target split ratios. Indices match MissionPhasePanel phases:
+    // 0 pre-check (status), 1 takeoff/recon (map), 2 detect/approach (video),
+    // 3 return/landing (map + status). Returns null for unknown phases (-1).
+    function _phaseLayoutTargets(phase) {
+        switch (phase) {
+        case 0:  return { left: 0.40, video: 0.50, topFactor: 1.20 }
+        case 1:  return { left: 0.30, video: 0.38, topFactor: 1.00 }
+        case 2:  return { left: 0.55, video: 0.72, topFactor: 0.82 }
+        case 3:  return { left: 0.34, video: 0.42, topFactor: 1.10 }
+        default: return null
+        }
+    }
+
+    function _applyPhaseLayout() {
+        if (!phaseAdaptiveLayout) {
+            return
+        }
+        const target = _phaseLayoutTargets(customOverlay.missionPhase)
+        if (!target) {
+            return
+        }
+        _leftPaneRatio  = target.left
+        _videoPaneShare = target.video
+        const minTop = ScreenTools.defaultFontPixelHeight * 8
+        const maxTop = Math.max(minTop,
+                                _leftPaneHeight - _paneSpacing * 2
+                                - (ScreenTools.defaultFontPixelHeight * 6) * 2)
+        _topPaneHeight = Math.max(minTop, Math.min(maxTop, target.topFactor * _topSquareSize))
+    }
+
+    // Animate the ratios only while adaptive mode drives them; disabled during a
+    // manual drag so the divider stays responsive.
+    Behavior on _leftPaneRatio {
+        enabled: _root.phaseAdaptiveLayout
+        NumberAnimation { duration: 450; easing.type: Easing.InOutQuad }
+    }
+    Behavior on _videoPaneShare {
+        enabled: _root.phaseAdaptiveLayout
+        NumberAnimation { duration: 450; easing.type: Easing.InOutQuad }
+    }
+    Behavior on _topPaneHeight {
+        enabled: _root.phaseAdaptiveLayout
+        NumberAnimation { duration: 450; easing.type: Easing.InOutQuad }
+    }
+
+    onPhaseAdaptiveLayoutChanged: if (phaseAdaptiveLayout) _applyPhaseLayout()
+    Component.onCompleted: _applyPhaseLayout()
+
+    Connections {
+        target: customOverlay
+        function onMissionPhaseChanged() { _root._applyPhaseLayout() }
     }
 
     QGCToolInsets {
@@ -147,6 +207,7 @@ Item {
                     if (!pressed || _leftPaneHeight <= 0) {
                         return
                     }
+                    _root.phaseAdaptiveLayout = false
                     const point = mapToItem(leftPane, mouse.x, mouse.y)
                     const minimumStackPaneHeight = ScreenTools.defaultFontPixelHeight * 6
                     _topPaneHeight = Math.max(
@@ -212,6 +273,7 @@ Item {
                     if (!pressed || mapHolder.width <= 0) {
                         return
                     }
+                    _root.phaseAdaptiveLayout = false
                     const point = mapToItem(mapHolder, mouse.x, mouse.y)
                     _leftPaneRatio = Math.max(0.25, Math.min(0.65, point.x / mapHolder.width))
                 }
@@ -239,6 +301,7 @@ Item {
                     if (!pressed || _stackedPaneHeight <= 0) {
                         return
                     }
+                    _root.phaseAdaptiveLayout = false
                     const point = mapToItem(leftPane, mouse.x, mouse.y)
                     const requestedVideoHeight = leftPane.height - point.y
                     _videoPaneShare = Math.max(0.20, Math.min(0.80, requestedVideoHeight / _stackedPaneHeight))
@@ -290,6 +353,52 @@ Item {
             parentToolInsets:       _toolInsets
             mapControl:             _mapControl
             visible:                !QGroundControl.videoManager.fullScreen
+        }
+
+        // AUTO / MANUAL toggle for the mission-phase adaptive layout. A manual
+        // divider drag pins the layout (MANUAL); this switches it back to AUTO.
+        Rectangle {
+            id:                     phaseLayoutToggle
+            parent:                 mapPane
+            anchors.top:            parent.top
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.topMargin:      _toolsMargin
+            z:                      QGroundControl.zOrderWidgets
+            width:                  toggleRow.implicitWidth + ScreenTools.defaultFontPixelWidth * 2
+            height:                 ScreenTools.defaultFontPixelHeight * 1.7
+            radius:                 4
+            color:                  Qt.rgba(0.03, 0.08, 0.14, 0.85)
+            border.width:           1
+            border.color:           _root.phaseAdaptiveLayout ? "#38BDF8" : Qt.rgba(0.34, 0.59, 0.71, 0.55)
+            visible:                !QGroundControl.videoManager.fullScreen
+
+            Row {
+                id:                 toggleRow
+                anchors.centerIn:   parent
+                spacing:            ScreenTools.defaultFontPixelWidth * 0.4
+
+                Rectangle {
+                    width:                  ScreenTools.defaultFontPixelWidth * 0.9
+                    height:                 width
+                    radius:                 width / 2
+                    anchors.verticalCenter: parent.verticalCenter
+                    color:                  _root.phaseAdaptiveLayout ? "#22C55E" : "#64748B"
+                }
+
+                QGCLabel {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text:                   _root.phaseAdaptiveLayout ? qsTr("AUTO LAYOUT") : qsTr("MANUAL")
+                    color:                  "white"
+                    font.bold:              true
+                    font.pointSize:         ScreenTools.smallFontPointSize
+                }
+            }
+
+            MouseArea {
+                anchors.fill:   parent
+                cursorShape:    Qt.PointingHandCursor
+                onClicked:      _root.phaseAdaptiveLayout = !_root.phaseAdaptiveLayout
+            }
         }
 
         FlyViewCustomLayer {

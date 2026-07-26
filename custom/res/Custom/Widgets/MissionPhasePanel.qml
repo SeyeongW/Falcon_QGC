@@ -43,6 +43,12 @@ Rectangle {
     readonly property int    _activePhase: RosBridge.phase
     readonly property var    _done:       RosBridge.phaseDone
     readonly property bool   _busy:       _state === "running"
+
+    // Public phase readout for consumers outside this panel (e.g. the adaptive
+    // fly-view layout). -1 while the orchestrator link is down so callers can
+    // tell "unknown" from phase 0.
+    readonly property int    activePhase:  _linkOk ? _activePhase : -1
+    readonly property int    phaseCount:   _phases.length
     readonly property string currentPhaseText: {
         if (!_linkOk || _activePhase < 0 || _activePhase >= _phases.length) {
             return "--"
