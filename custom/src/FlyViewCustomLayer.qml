@@ -382,10 +382,6 @@ Item {
                 missionController: root._missionController
                 activeVehicle:     root._activeVehicle
                 missionAvailable:  root._activeVehicle ? true : false
-                phaseText:         missionPhaseLoader.status === Loader.Ready
-                                   && missionPhaseLoader.item
-                                   ? missionPhaseLoader.item.currentPhaseText
-                                   : "--"
             }
 
             Loader {
@@ -427,6 +423,9 @@ Item {
                     })
                     item.missionProgressRevision = Qt.binding(function() {
                         return missionRouteView.missionProgressRevision
+                    })
+                    item.showDebugSequenceNumbers = Qt.binding(function() {
+                        return missionRouteView.showDebugSequenceNumbers
                     })
                     item.activeVehicle = Qt.binding(function() {
                         return root._activeVehicle

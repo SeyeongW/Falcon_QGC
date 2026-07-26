@@ -10,10 +10,12 @@ Item {
     property var  activeVehicle
     property bool missionAvailable: false
     property bool showDebugGeometry: false
+    property bool showDebugSequenceNumbers: false
 
     property real altitudeVisualScale: 1.0
     property real routeThicknessScale: 0.8
     property real waypointSizeScale:   0.8
+    property real groundPlaneExtentScale: 1.6
 
     readonly property int cameraOverview: 0
     readonly property int cameraFollow:   1
@@ -25,6 +27,8 @@ Item {
     property real overviewPitchDegrees:    30
     property real followPitchDegrees:      15
     property real followDistance:          45
+    property real followZoomScale:         0.75
+    property real minimumFollowDistance:   12
     property real followHeightOffset:      2
     property real followLookAheadDistance: 18
 
@@ -55,6 +59,8 @@ Item {
     readonly property real _cameraFillRatio:      0.82
     readonly property real _routeThicknessStyleScale: 0.65
     readonly property real _waypointSizeStyleScale:   0.70
+    readonly property real _effectiveFollowDistance:
+        Math.max(minimumFollowDistance, followDistance * followZoomScale)
     readonly property real _overviewPitchRadians: overviewPitchDegrees * Math.PI / 180
     readonly property real _cameraOffsetX:        Math.cos(_overviewPitchRadians) * 0.33035
     readonly property real _cameraOffsetY:        Math.sin(_overviewPitchRadians)
@@ -224,7 +230,14 @@ Item {
 
     function _physicalWaypointLabel(groupIndex) {
         const group = _physicalWaypointGroup(groupIndex)
-        return group && !group.isDedicated ? group.label : ""
+        return group ? group.label : ""
+    }
+
+    function _physicalWaypointDebugLabel(groupIndex) {
+        const group = _physicalWaypointGroup(groupIndex)
+        return group && group.sequenceNumbers.length > 0
+                ? qsTr("SEQ %1").arg(group.sequenceNumbers.join("·"))
+                : ""
     }
 
     function _rawPoint(coordinate, altitude, referenceCoordinate, referenceAltitude) {
@@ -328,7 +341,7 @@ Item {
         const forwardDirection = _currentForwardDirection()
         const pitchRadians = followPitchDegrees * Math.PI / 180
         const cameraHeight = followHeightOffset
-                + (Math.tan(pitchRadians) * followDistance)
+                + (Math.tan(pitchRadians) * _effectiveFollowDistance)
 
         _desiredFollowTarget = Qt.vector3d(
                     aircraftPosition.x
@@ -338,10 +351,10 @@ Item {
                     + (forwardDirection.z * followLookAheadDistance))
         _desiredFollowCameraPosition = Qt.vector3d(
                     aircraftPosition.x
-                    - (forwardDirection.x * followDistance),
+                    - (forwardDirection.x * _effectiveFollowDistance),
                     aircraftPosition.y + cameraHeight,
                     aircraftPosition.z
-                    - (forwardDirection.z * followDistance))
+                    - (forwardDirection.z * _effectiveFollowDistance))
         aircraftHeading = Math.atan2(forwardDirection.x,
                                      forwardDirection.z) * 180 / Math.PI
     }
@@ -656,8 +669,15 @@ Item {
         for (let groupIndex = 0;
              groupIndex < physicalWaypointGroups.length;
              groupIndex++) {
-            physicalGroupIndexByKey[
-                        physicalWaypointGroups[groupIndex].physicalWaypointKey] = groupIndex
+            const coordinateKeys = physicalWaypointGroups[groupIndex].coordinateKeys
+            if (coordinateKeys) {
+                for (let keyIndex = 0; keyIndex < coordinateKeys.length; keyIndex++) {
+                    physicalGroupIndexByKey[coordinateKeys[keyIndex]] = groupIndex
+                }
+            } else {
+                physicalGroupIndexByKey[
+                            physicalWaypointGroups[groupIndex].physicalWaypointKey] = groupIndex
+            }
         }
 
         const geoMarkers = []
@@ -1065,10 +1085,10 @@ Item {
         _projectedRouteHeight = Math.max(_minimumRouteExtent, projectedHalfHeight * 2)
         _markerRadius = markerRadius
         _segmentRadius = segmentRadius
-        _groundWidth = Math.max(rangeX * 1.15,
+        _groundWidth = Math.max(rangeX * groundPlaneExtentScale,
                                 horizontalExtent * 0.15,
                                 markerRadius * 5)
-        _groundDepth = Math.max(rangeZ * 1.15,
+        _groundDepth = Math.max(rangeZ * groundPlaneExtentScale,
                                 horizontalExtent * 0.15,
                                 markerRadius * 5)
         _groundY = minY - Math.max(markerRadius * 1.35, segmentRadius * 2)
@@ -1342,8 +1362,8 @@ Item {
                      && screenPosition.y <= routeView3D.height
             x: screenPosition.x - (width / 2)
             y: screenPosition.y - height - 3
-            width: waypointSequenceText.implicitWidth + 6
-            height: waypointSequenceText.implicitHeight + 4
+            width: waypointLabelColumn.implicitWidth + 6
+            height: waypointLabelColumn.implicitHeight + 4
             z: 9
 
             Rectangle {
@@ -1354,16 +1374,30 @@ Item {
                 border.color: Qt.rgba(0.31, 0.35, 0.41, 0.45)
             }
 
-            Text {
-                id: waypointSequenceText
+            Column {
+                id: waypointLabelColumn
 
                 anchors.centerIn: parent
-                text: root._physicalWaypointLabel(
-                          waypointSequenceLabel.modelData.physicalWaypointIndex)
-                color: "#1F2937"
-                font.bold: true
-                font.pixelSize: 10
-                horizontalAlignment: Text.AlignHCenter
+                spacing: 0
+
+                Text {
+                    text: root._physicalWaypointLabel(
+                              waypointSequenceLabel.modelData.physicalWaypointIndex)
+                    color: "#1F2937"
+                    font.bold: true
+                    font.pixelSize: 10
+                    horizontalAlignment: Text.AlignHCenter
+                }
+
+                Text {
+                    visible: root.showDebugSequenceNumbers
+                             && text.length > 0
+                    text: root._physicalWaypointDebugLabel(
+                              waypointSequenceLabel.modelData.physicalWaypointIndex)
+                    color: "#64748B"
+                    font.pixelSize: 7
+                    horizontalAlignment: Text.AlignHCenter
+                }
             }
         }
     }

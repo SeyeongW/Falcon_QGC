@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 
 import QGroundControl.Controls
@@ -8,6 +10,7 @@ Item {
     property var missionController
     property var activeVehicle
     property bool missionAvailable: false
+    property bool showDebugSequenceNumbers: false
 
     property int  activeWaypointIndex: -1
     property int  currentLegIndex:     -1
@@ -21,8 +24,8 @@ Item {
     property int  activeTraversalIndex:     -1
     property int  missionProgressRevision:  0
 
-    property string phaseText:              "--"
-    property string targetText:             "--"
+    property string routeText:              "-- >>> --"
+    property string routeDetailText:        ""
     property real   horizontalError:        Number.NaN
     property real   verticalError:          Number.NaN
     property real   altitudeDrop:           Number.NaN
@@ -76,6 +79,7 @@ Item {
     property real  _missionStopTimestampMs: Number.NaN
     property bool  _missionTimerRunning: false
     property int   _lastMissionSequence: -1
+    property string _homePhysicalWaypointKey: ""
 
     function _isValidCoordinate(coordinate) {
         return coordinate
@@ -98,33 +102,34 @@ Item {
         return -1
     }
 
-    function _labelForCoordinate(coordinate, visualItems, homeCoordinate) {
+    function _groupForCoordinate(coordinate) {
+        const coordinateKey = _physicalWaypointKey(coordinate)
+        for (let groupIndex = 0;
+             groupIndex < physicalWaypointGroups.length;
+             groupIndex++) {
+            const group = physicalWaypointGroups[groupIndex]
+            if (group.coordinateKeys
+                    && group.coordinateKeys.indexOf(coordinateKey) >= 0) {
+                return group
+            }
+        }
+        return null
+    }
+
+    function _labelForCoordinate(coordinate, homeCoordinate) {
         if (homeCoordinate && _coordinatesMatch(coordinate, homeCoordinate)) {
             return qsTr("HOME")
         }
 
-        if (!visualItems) {
-            return ""
-        }
+        const group = _groupForCoordinate(coordinate)
+        return group ? group.label : ""
+    }
 
-        let sequenceLabel = ""
-        for (let index = 0; index < visualItems.count; index++) {
-            const item = visualItems.get(index)
-            if (!item
-                    || (!_isValidCoordinate(item.coordinate))
-                    || (!item.homePosition && (!item.specifiesCoordinate || item.isStandaloneCoordinate))
-                    || !_coordinatesMatch(item.coordinate, coordinate)) {
-                continue
-            }
-
-            if (item.homePosition) {
-                return qsTr("HOME")
-            }
-            if (sequenceLabel.length === 0) {
-                sequenceLabel = qsTr("SEQ %1").arg(item.sequenceNumber)
-            }
-        }
-        return sequenceLabel
+    function _debugLabelForCoordinate(coordinate) {
+        const group = _groupForCoordinate(coordinate)
+        return group && group.sequenceNumbers.length > 0
+                ? qsTr("SEQ %1").arg(group.sequenceNumbers.join("·"))
+                : ""
     }
 
     function _waypointState(markerIndex) {
@@ -233,8 +238,7 @@ Item {
 
     function _infoLabel(rowIndex) {
         const labels = [
-            qsTr("PHASE"),
-            qsTr("TARGET"),
+            qsTr("ROUTE"),
             qsTr("H ERROR"),
             qsTr("V ERROR"),
             qsTr("ALT DROP"),
@@ -252,20 +256,18 @@ Item {
     function _infoValue(rowIndex) {
         switch (rowIndex) {
         case 0:
-            return _validText(phaseText, "--")
+            return _validText(routeText, "-- >>> --")
         case 1:
-            return _validText(targetText, "--")
-        case 2:
             return isFinite(horizontalError) ? Number(horizontalError).toFixed(1) : "--"
-        case 3:
+        case 2:
             return isFinite(verticalError) ? Number(verticalError).toFixed(1) : "--"
-        case 4:
+        case 3:
             return isFinite(altitudeDrop) ? Number(altitudeDrop).toFixed(1) : "--"
-        case 5:
+        case 4:
             return isFinite(maximumAccelerationG) ? Number(maximumAccelerationG).toFixed(2) : "--"
-        case 6:
+        case 5:
             return _validText(missionTimeText, "--")
-        case 7:
+        case 6:
             return estimatedScore >= 0 ? String(estimatedScore) : "--"
         default:
             return "--"
@@ -274,11 +276,11 @@ Item {
 
     function _infoUnit(rowIndex) {
         switch (rowIndex) {
+        case 1:
         case 2:
         case 3:
-        case 4:
             return qsTr("m")
-        case 5:
+        case 4:
             return qsTr("G")
         default:
             return ""
@@ -298,6 +300,65 @@ Item {
         return Number(coordinate.latitude).toFixed(7)
                 + ","
                 + Number(coordinate.longitude).toFixed(7)
+    }
+
+    function _semanticWaypointKey(item) {
+        const semanticPropertyNames = [
+            "physicalWaypointId",
+            "waypointId",
+            "semanticName"
+        ]
+        for (let index = 0; index < semanticPropertyNames.length; index++) {
+            let value
+            try {
+                value = item[semanticPropertyNames[index]]
+            } catch (error) {
+                value = undefined
+            }
+            if (value && typeof value === "object" && value.rawValue !== undefined) {
+                value = value.rawValue
+            }
+            if (value === undefined || value === null) {
+                continue
+            }
+            const normalizedValue = String(value).trim()
+            if (normalizedValue.length > 0) {
+                return "semantic:" + normalizedValue
+            }
+        }
+        return ""
+    }
+
+    function _waypointGroupingKey(item) {
+        const semanticKey = _semanticWaypointKey(item)
+        return semanticKey.length > 0
+                ? semanticKey
+                : "coordinate:" + _physicalWaypointKey(item.coordinate)
+    }
+
+    function _missionHomeCoordinate(visualItems) {
+        if (!visualItems) {
+            return null
+        }
+
+        let takeoffCoordinate = null
+        let landingCoordinate = null
+        for (let index = 0; index < visualItems.count; index++) {
+            const item = visualItems.get(index)
+            if (!item || !_isValidCoordinate(item.coordinate)) {
+                continue
+            }
+            if (item.homePosition) {
+                return item.coordinate
+            }
+            if (!takeoffCoordinate && item.isTakeoffItem) {
+                takeoffCoordinate = item.coordinate
+            }
+            if (item.isLandCommand) {
+                landingCoordinate = item.coordinate
+            }
+        }
+        return takeoffCoordinate || landingCoordinate
     }
 
     function _isMissionOccurrenceItem(item) {
@@ -331,6 +392,9 @@ Item {
             command: occurrence.command,
             physicalWaypointKey: occurrence.physicalWaypointKey,
             physicalWaypointIndex: occurrence.physicalWaypointIndex,
+            isWaypoint: occurrence.isWaypoint,
+            isTakeoff: occurrence.isTakeoff,
+            isLand: occurrence.isLand,
             visitNumber: occurrence.visitNumber,
             totalVisitCount: occurrence.totalVisitCount,
             state: occurrence.state,
@@ -367,6 +431,11 @@ Item {
         const occurrences = []
         const groups = []
         const groupIndexByKey = ({})
+        const homeCoordinate = _missionHomeCoordinate(visualItems)
+        _homePhysicalWaypointKey = homeCoordinate
+                ? _physicalWaypointKey(homeCoordinate)
+                : ""
+        let nextWaypointNumber = 1
 
         if (visualItems) {
             for (let modelIndex = 0; modelIndex < visualItems.count; modelIndex++) {
@@ -382,30 +451,52 @@ Item {
 
                 const lastSequenceNumber = Number(item.lastSequenceNumber)
                 const physicalKey = _physicalWaypointKey(item.coordinate)
-                let groupIndex = groupIndexByKey[physicalKey]
+                const groupingKey = _waypointGroupingKey(item)
+                let groupIndex = groupIndexByKey[groupingKey]
                 if (groupIndex === undefined) {
                     groupIndex = groups.length
-                    groupIndexByKey[physicalKey] = groupIndex
+                    groupIndexByKey[groupingKey] = groupIndex
                     groups.push({
                         physicalWaypointIndex: groupIndex,
                         physicalWaypointKey: physicalKey,
+                        groupingKey: groupingKey,
+                        coordinateKeys: [physicalKey],
                         coordinate: item.coordinate,
                         occurrenceIndices: [],
+                        waypointOccurrenceIndices: [],
                         sequenceNumbers: [],
                         completedVisitCount: 0,
                         totalVisitCount: 0,
-                        isDedicated: false,
+                        hasWaypointOccurrence: false,
+                        isDedicated: true,
+                        isHome: physicalKey === _homePhysicalWaypointKey,
+                        hasTakeoffOccurrence: false,
+                        hasLandOccurrence: false,
+                        waypointNumber: 0,
                         state: waypointPending,
                         label: ""
                     })
+                } else if (groups[groupIndex].coordinateKeys.indexOf(physicalKey) < 0) {
+                    groups[groupIndex].coordinateKeys.push(physicalKey)
                 }
 
+                const group = groups[groupIndex]
+                const isTakeoff = Boolean(item.isTakeoffItem)
+                const isLand = Boolean(item.isLandCommand)
+                const isWaypoint = !isTakeoff && !isLand && !group.isHome
+                if (isWaypoint && !group.hasWaypointOccurrence) {
+                    group.hasWaypointOccurrence = true
+                    group.isDedicated = false
+                    group.waypointNumber = nextWaypointNumber++
+                }
                 const occurrenceIndex = occurrences.length
-                groups[groupIndex].occurrenceIndices.push(occurrenceIndex)
-                groups[groupIndex].sequenceNumbers.push(Math.floor(sequenceNumber))
-                groups[groupIndex].isDedicated = groups[groupIndex].isDedicated
-                        || Boolean(item.isTakeoffItem)
-                        || Boolean(item.isLandCommand)
+                group.occurrenceIndices.push(occurrenceIndex)
+                group.hasTakeoffOccurrence = group.hasTakeoffOccurrence || isTakeoff
+                group.hasLandOccurrence = group.hasLandOccurrence || isLand
+                if (isWaypoint) {
+                    group.waypointOccurrenceIndices.push(occurrenceIndex)
+                    group.sequenceNumbers.push(Math.floor(sequenceNumber))
+                }
                 occurrences.push({
                     occurrenceIndex: occurrenceIndex,
                     sequenceNumber: Math.floor(sequenceNumber),
@@ -417,7 +508,12 @@ Item {
                     command: item.isSimpleItem ? Number(item.command) : -1,
                     physicalWaypointKey: physicalKey,
                     physicalWaypointIndex: groupIndex,
-                    visitNumber: groups[groupIndex].occurrenceIndices.length,
+                    isWaypoint: isWaypoint,
+                    isTakeoff: isTakeoff,
+                    isLand: isLand,
+                    visitNumber: isWaypoint
+                            ? group.waypointOccurrenceIndices.length
+                            : 0,
                     totalVisitCount: 0,
                     state: waypointPending,
                     minimumHorizontalError: Number.NaN,
@@ -430,10 +526,10 @@ Item {
         }
 
         for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-            const totalVisitCount = groups[groupIndex].occurrenceIndices.length
+            const totalVisitCount = groups[groupIndex].waypointOccurrenceIndices.length
             groups[groupIndex].totalVisitCount = totalVisitCount
             for (let visitIndex = 0; visitIndex < totalVisitCount; visitIndex++) {
-                const occurrenceIndex = groups[groupIndex].occurrenceIndices[visitIndex]
+                const occurrenceIndex = groups[groupIndex].waypointOccurrenceIndices[visitIndex]
                 occurrences[occurrenceIndex].totalVisitCount = totalVisitCount
             }
         }
@@ -520,6 +616,7 @@ Item {
         if (sequenceNumber < 0 || missionOccurrences.length === 0) {
             activeOccurrenceIndex = -1
             activeTraversalIndex = -1
+            _publishMissionProgress()
             return
         }
 
@@ -528,17 +625,26 @@ Item {
         }
 
         const now = Date.now()
+        let activeTargetIndex = -1
+        for (let index = 0; index < missionOccurrences.length; index++) {
+            const occurrence = missionOccurrences[index]
+            if ((sequenceNumber >= occurrence.sequenceNumber
+                 && sequenceNumber <= occurrence.lastSequenceNumber)
+                    || sequenceNumber < occurrence.sequenceNumber) {
+                activeTargetIndex = index
+                break
+            }
+        }
         const occurrences = []
         for (let index = 0; index < missionOccurrences.length; index++) {
             const occurrence = _copyOccurrence(missionOccurrences[index])
             const wasPassed = occurrence.state === waypointPassed
-            if (occurrence.lastSequenceNumber < sequenceNumber) {
+            if (activeTargetIndex < 0 || index < activeTargetIndex) {
                 occurrence.state = waypointPassed
                 if (!wasPassed && !isFinite(occurrence.passedTimestamp)) {
                     occurrence.passedTimestamp = now
                 }
-            } else if (sequenceNumber >= occurrence.sequenceNumber
-                       && sequenceNumber <= occurrence.lastSequenceNumber) {
+            } else if (index === activeTargetIndex) {
                 occurrence.state = waypointActive
             } else if (occurrence.state !== waypointFailed) {
                 occurrence.state = waypointPending
@@ -592,7 +698,9 @@ Item {
                 const occurrence = missionOccurrences[
                             sourceGroup.occurrenceIndices[visitIndex]]
                 if (occurrence.state === waypointPassed) {
-                    completedVisitCount++
+                    if (occurrence.isWaypoint) {
+                        completedVisitCount++
+                    }
                     groupState = waypointPassed
                 } else if (occurrence.state === waypointActive) {
                     groupState = waypointActive
@@ -602,22 +710,41 @@ Item {
                 }
             }
 
-            const sequenceText = sourceGroup.sequenceNumbers.join("·")
+            let label = ""
+            if (sourceGroup.isHome) {
+                label = qsTr("HOME")
+            } else if (sourceGroup.waypointNumber > 0) {
+                label = qsTr("WP%1").arg(sourceGroup.waypointNumber)
+                if (sourceGroup.totalVisitCount > 1) {
+                    label += "\n"
+                            + completedVisitCount
+                            + "/"
+                            + sourceGroup.totalVisitCount
+                }
+            } else if (sourceGroup.hasTakeoffOccurrence) {
+                label = qsTr("TO")
+            } else if (sourceGroup.hasLandOccurrence) {
+                label = qsTr("LAND")
+            }
             groups.push({
                 physicalWaypointIndex: sourceGroup.physicalWaypointIndex,
                 physicalWaypointKey: sourceGroup.physicalWaypointKey,
+                groupingKey: sourceGroup.groupingKey,
+                coordinateKeys: sourceGroup.coordinateKeys,
                 coordinate: sourceGroup.coordinate,
                 occurrenceIndices: sourceGroup.occurrenceIndices,
+                waypointOccurrenceIndices: sourceGroup.waypointOccurrenceIndices,
                 sequenceNumbers: sourceGroup.sequenceNumbers,
                 completedVisitCount: completedVisitCount,
                 totalVisitCount: sourceGroup.totalVisitCount,
+                hasWaypointOccurrence: sourceGroup.hasWaypointOccurrence,
                 isDedicated: sourceGroup.isDedicated,
+                isHome: sourceGroup.isHome,
+                hasTakeoffOccurrence: sourceGroup.hasTakeoffOccurrence,
+                hasLandOccurrence: sourceGroup.hasLandOccurrence,
+                waypointNumber: sourceGroup.waypointNumber,
                 state: groupState,
-                label: qsTr("SEQ %1").arg(sequenceText)
-                       + "\n"
-                       + completedVisitCount
-                       + "/"
-                       + sourceGroup.totalVisitCount
+                label: label
             })
             states.push(groupState)
         }
@@ -643,6 +770,59 @@ Item {
         }
         traversalOccurrences = traversals
         activeTraversalIndex = activeLegIndex
+        _updateRouteText()
+    }
+
+    function _routeEndpointLabel(occurrence) {
+        if (!occurrence
+                || occurrence.physicalWaypointIndex < 0
+                || occurrence.physicalWaypointIndex >= physicalWaypointGroups.length) {
+            return "--"
+        }
+
+        const group = physicalWaypointGroups[occurrence.physicalWaypointIndex]
+        if (group.isHome) {
+            return qsTr("HOME")
+        }
+        if (occurrence.isTakeoff) {
+            return qsTr("TO")
+        }
+        if (occurrence.isLand) {
+            return qsTr("LAND")
+        }
+        if (group.waypointNumber > 0) {
+            return qsTr("WP%1").arg(group.waypointNumber)
+        }
+        return "--"
+    }
+
+    function _updateRouteText() {
+        routeText = "-- >>> --"
+        routeDetailText = ""
+        if (activeOccurrenceIndex < 0
+                || activeOccurrenceIndex >= missionOccurrences.length) {
+            return
+        }
+
+        const targetOccurrence = missionOccurrences[activeOccurrenceIndex]
+        const previousOccurrence = activeOccurrenceIndex > 0
+                ? missionOccurrences[activeOccurrenceIndex - 1]
+                : null
+        const currentLabel = previousOccurrence
+                ? _routeEndpointLabel(previousOccurrence)
+                : (_homePhysicalWaypointKey.length > 0 ? qsTr("HOME") : "--")
+        const targetLabel = _routeEndpointLabel(targetOccurrence)
+        routeText = currentLabel + " >>> " + targetLabel
+
+        if (targetOccurrence.isWaypoint
+                && targetOccurrence.totalVisitCount > 1) {
+            routeDetailText = (targetOccurrence.visitNumber > 1
+                               ? qsTr("RETURN · ")
+                               : "")
+                    + qsTr("VISIT %1/%2")
+                        .arg(targetOccurrence.visitNumber)
+                        .arg(targetOccurrence.totalVisitCount)
+        }
     }
 
     function _recordActiveOccurrenceErrors() {
@@ -691,7 +871,8 @@ Item {
         const sequenceNumber = _currentMissionSequence()
         _targetSequenceNumber = sequenceNumber
         _targetMissionItem = null
-        targetText = "--"
+        routeText = "-- >>> --"
+        routeDetailText = ""
 
         if (sequenceNumber < 0) {
             updateTargetMetrics()
@@ -704,10 +885,7 @@ Item {
                 && activeOccurrenceIndex < missionOccurrences.length) {
             const occurrence = missionOccurrences[activeOccurrenceIndex]
             _targetMissionItem = occurrence.missionItem
-            targetText = qsTr("SEQ %1 · VISIT %2/%3")
-                    .arg(occurrence.sequenceNumber)
-                    .arg(occurrence.visitNumber)
-                    .arg(occurrence.totalVisitCount)
+            _updateRouteText()
         }
 
         updateTargetMetrics()
@@ -945,14 +1123,14 @@ Item {
             })
         }
 
-        const homeItem = takeoffItem ? takeoffItem : landingItem
-        const homeCoordinate = homeItem ? homeItem.coordinate : null
+        const homeCoordinate = _missionHomeCoordinate(visualItems)
 
         for (let index = 0; index < uniqueCoordinates.length; index++) {
             const coordinate = uniqueCoordinates[index]
             projectedMarkers.push({
                 point: _projectCoordinate(coordinate, projection),
-                label: _labelForCoordinate(coordinate, visualItems, homeCoordinate),
+                label: _labelForCoordinate(coordinate, homeCoordinate),
+                debugLabel: _debugLabelForCoordinate(coordinate),
                 markerIndex: index,
                 labelAbove: index % 2 === 1
             })
@@ -1054,45 +1232,75 @@ Item {
         anchors.bottom: parent.bottom
         color:          Qt.rgba(0.01, 0.04, 0.07, 0.28)
 
+        readonly property real infoLabelFontSize:
+            Math.max(11, Math.min(15, width * 0.055))
+        readonly property real infoValueFontSize:
+            Math.max(15, Math.min(20, width * 0.080))
+        readonly property real routeValueFontSize:
+            Math.max(18, Math.min(24, width * 0.095))
+        readonly property real routeDetailFontSize:
+            Math.max(10, Math.min(13, width * 0.050))
+
         Column {
             id: infoColumn
 
-            readonly property real rowSpacing: Math.max(1, height * 0.012)
-            readonly property real rowHeight:  Math.max(1, (height - (rowSpacing * 7)) / 8)
+            readonly property real rowSpacing:     Math.max(2, height * 0.014)
+            readonly property real routeRowHeight: Math.max(1, height * 0.20)
+            readonly property real rowHeight:
+                Math.max(1, (height - routeRowHeight - (rowSpacing * 6)) / 6)
 
             anchors.fill:    parent
             anchors.margins: Math.max(5, Math.min(parent.width, parent.height) * 0.055)
             spacing:         rowSpacing
 
             Repeater {
-                model: 8
+                model: 7
 
                 delegate: Item {
+                    id: infoRow
+
                     required property int index
 
                     width:  infoColumn.width
-                    height: infoColumn.rowHeight
+                    height: infoRow.index === 0
+                            ? infoColumn.routeRowHeight
+                            : infoColumn.rowHeight
 
                     QGCLabel {
                         anchors.left:           parent.left
                         anchors.verticalCenter: parent.verticalCenter
                         width:                  parent.width * 0.52
-                        text:                   root._infoLabel(index)
+                        text:                   root._infoLabel(infoRow.index)
                         color:                  root._standbyColor
                         elide:                  Text.ElideRight
-                        font.pixelSize:         Math.max(7, Math.min(9, infoArea.width * 0.085))
+                        font.pixelSize:         infoArea.infoLabelFontSize
                     }
 
                     QGCLabel {
                         anchors.right:          parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        width:                  parent.width * 0.47
-                        text:                   root._infoDisplayValue(index)
+                        width:                  infoRow.index === 0 ? parent.width : parent.width * 0.47
+                        text:                   root._infoDisplayValue(infoRow.index)
                         color:                  root._standbyBorderColor
                         elide:                  Text.ElideRight
                         horizontalAlignment:    Text.AlignRight
                         font.bold:              true
-                        font.pixelSize:         Math.max(8, Math.min(11, infoArea.width * 0.105))
+                        font.pixelSize:         infoRow.index === 0
+                                                ? infoArea.routeValueFontSize
+                                                : infoArea.infoValueFontSize
+                    }
+
+                    QGCLabel {
+                        anchors.right:  parent.right
+                        anchors.bottom: parent.bottom
+                        visible:        infoRow.index === 0 && root.routeDetailText.length > 0
+                        width:          parent.width
+                        text:           root.routeDetailText
+                        color:          root._standbyColor
+                        elide:          Text.ElideRight
+                        horizontalAlignment: Text.AlignRight
+                        font.bold:      true
+                        font.pixelSize: infoArea.routeDetailFontSize
                     }
                 }
             }
@@ -1205,6 +1413,8 @@ Item {
             }
 
             QGCLabel {
+                id: waypointLabel
+
                 x:              (parent.width - width) / 2
                 y:              waypoint.modelData.labelAbove
                                 ? -height - (root._markerDiameter * 0.22)
@@ -1213,6 +1423,18 @@ Item {
                 color:          root._waypointColor(waypoint.modelData.markerIndex)
                 font.bold:      false
                 font.pixelSize: root._labelPixelSize
+            }
+
+            QGCLabel {
+                visible:        root.showDebugSequenceNumbers
+                                && waypoint.modelData.debugLabel.length > 0
+                x:              (parent.width - width) / 2
+                y:              waypoint.modelData.labelAbove
+                                ? waypointLabel.y - height
+                                : waypointLabel.y + waypointLabel.height
+                text:           waypoint.modelData.debugLabel
+                color:          root._standbyColor
+                font.pixelSize: Math.max(7, root._labelPixelSize - 2)
             }
         }
     }
@@ -1540,6 +1762,7 @@ Item {
     }
     onCurrentLegProgressChanged: updateAircraftPoint()
     onWaypointStatesChanged: routeCanvas.requestPaint()
+    onPhysicalWaypointGroupsChanged: rebuildRoute()
 
     Component.onCompleted: {
         rebuildMissionProgressModel()
