@@ -35,6 +35,30 @@ Item {
     property real   _layoutMargin:          ScreenTools.defaultFontPixelWidth * 0.75
     property bool   _layoutSpacing:         ScreenTools.defaultFontPixelWidth
     property bool   _showSingleVehicleUI:   true
+    property var    _primaryBattery:        _activeVehicle && _activeVehicle.batteries.count > 0
+                                                ? _activeVehicle.batteries.get(0)
+                                                : null
+
+    function _telemetryText(fact, decimalPlaces) {
+        if (!fact || !isFinite(Number(fact.value))) {
+            return qsTr("–")
+        }
+
+        const units = fact.units ? " " + fact.units : ""
+        return Number(fact.value).toFixed(decimalPlaces) + units
+    }
+
+    function _descentRateText() {
+        if (!_activeVehicle || !isFinite(Number(_activeVehicle.climbRate.value))) {
+            return qsTr("–")
+        }
+
+        const descentRate = Math.max(0, -Number(_activeVehicle.climbRate.value))
+        const units = _activeVehicle.climbRate.units
+                ? " " + _activeVehicle.climbRate.units
+                : ""
+        return descentRate.toFixed(1) + units
+    }
 
     QGCToolInsets {
         id:                     _totalToolInsets
@@ -73,6 +97,58 @@ Item {
         property real topEdgeRightInset:    childrenRect.height + _layoutMargin
         property real rightEdgeTopInset:    width + _layoutMargin
         property real rightEdgeCenterInset: rightEdgeTopInset
+    }
+
+    Rectangle {
+        id:                     telemetryPanel
+        anchors.left:           parent.left
+        anchors.top:            parent.top
+        width:                  ScreenTools.defaultFontPixelWidth * 19
+        height:                 telemetryColumn.implicitHeight + (_toolsMargin * 2)
+        color:                  Qt.rgba(0.03, 0.08, 0.14, 0.90)
+        radius:                 ScreenTools.defaultFontPixelWidth * 0.6
+        border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
+        border.width:           1
+        visible:                _activeVehicle
+        z:                      QGroundControl.zOrderWidgets
+
+        ColumnLayout {
+            id:                 telemetryColumn
+            anchors.left:       parent.left
+            anchors.right:      parent.right
+            anchors.top:        parent.top
+            anchors.margins:    _toolsMargin
+            spacing:            ScreenTools.defaultFontPixelHeight * 0.12
+
+            Repeater {
+                model: [
+                    { label: qsTr("CURRENT"), value: _telemetryText(_primaryBattery ? _primaryBattery.current : null, 1) },
+                    { label: qsTr("ROLL"),    value: _telemetryText(_activeVehicle ? _activeVehicle.roll : null, 1) },
+                    { label: qsTr("PITCH"),   value: _telemetryText(_activeVehicle ? _activeVehicle.pitch : null, 1) },
+                    { label: qsTr("DESCENT"), value: _descentRateText() }
+                ]
+
+                RowLayout {
+                    required property var modelData
+
+                    Layout.fillWidth: true
+                    spacing:          ScreenTools.defaultFontPixelWidth * 0.5
+
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        text:             modelData.label
+                        color:            "#5796B4"
+                        font.pixelSize:   ScreenTools.defaultFontPixelHeight * 0.62
+                    }
+
+                    QGCLabel {
+                        text:             modelData.value
+                        color:            "white"
+                        font.pixelSize:   ScreenTools.defaultFontPixelHeight * 0.72
+                    }
+                }
+            }
+        }
     }
 
     FlyViewBottomRightRowLayout {
