@@ -19,6 +19,13 @@ Item {
     property bool use3DRouteView: true
     property bool force3DVisibleForDebug: false
 
+    // Active mission phase relayed from the (ROS-only) MissionPhasePanel, so the
+    // fly-view layout can adapt without importing Custom.Ros into core. -1 when
+    // the panel is absent (non-ROS build) or the orchestrator link is down.
+    readonly property int missionPhase: (missionPhaseLoader.item &&
+                                         missionPhaseLoader.item.activePhase !== undefined)
+                                            ? missionPhaseLoader.item.activePhase : -1
+
     readonly property string noGPS:         qsTr("NO GPS")
     readonly property real   indicatorValueWidth:   ScreenTools.defaultFontPixelWidth * 7
     property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
