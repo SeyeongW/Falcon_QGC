@@ -163,6 +163,8 @@ option(QGC_ENABLE_ROS "Build the VTOL-GCS ROS2 bridge (requires a sourced ROS2 e
 if(QGC_ENABLE_ROS)
     message(STATUS "QGC: ROS2 bridge enabled")
     find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick)
+    find_package(fastcdr REQUIRED COMPONENTS shared)
+    set_property(TARGET fastcdr PROPERTY IMPORTED_GLOBAL TRUE)
     find_package(rclcpp REQUIRED)
     find_package(std_msgs REQUIRED)
     find_package(sensor_msgs REQUIRED)
