@@ -44,7 +44,7 @@ jobs:
         shell: bash
 
     env:
-      PACKAGE: QGroundControl
+      PACKAGE: FGC
 
     steps:
       - name: Harden Runner

@@ -126,10 +126,10 @@ jobs:
         run: |
           python3 "${GITHUB_WORKSPACE}/.github/scripts/find_artifact.py" \
             --build-dir artifacts \
-            --match "appimage=QGroundControl*.AppImage" \
+            --match "appimage=FGC*.AppImage" \
             --match "apk=*.apk" \
             --match "dmg=*.dmg" \
-            --match "exe=QGroundControl*.exe"
+            --match "exe=FGC*.exe"
 
       # Source-tree SBOM is kept as a release artifact for source traceability,
       # but it is NOT used as the attestation evidence (per-platform SBOMs are).

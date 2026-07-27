@@ -85,7 +85,7 @@ jobs:
 
     env:
       BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
-      PACKAGE: QGroundControl
+      PACKAGE: FGC
       QT_ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/deploy/android/android_release.keystore
       QT_ANDROID_KEYSTORE_ALIAS: QGCAndroidKeyStore
       QT_ANDROID_KEYSTORE_STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -208,7 +208,7 @@ jobs:
             ${{ runner.temp }}/build/CMakeFiles/CMakeOutput.log
             ${{ runner.temp }}/build/CMakeFiles/CMakeError.log
             ${{ runner.temp }}/build/.ninja_log
-            ${{ runner.temp }}/build/android-QGroundControl-deployment-settings.json
+            ${{ runner.temp }}/build/android-FGC-deployment-settings.json
           if-no-files-found: ignore
           retention-days: 7
 
