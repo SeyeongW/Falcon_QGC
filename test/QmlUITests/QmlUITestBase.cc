@@ -95,7 +95,12 @@ void QmlUITestBase::startUI()
         appSettings->firstRunPromptIdsMarkIdAsShown(id);
     }
 
-    QVERIFY2(QGCCorePlugin::instance()->showAdvancedUI(), "Test requires Advanced UI mode");
+    // The custom build defaults advanced UI mode off (CustomPlugin sets
+    // _showAdvancedUI = false in its constructor), whereas upstream defaults it
+    // on. These UI smoke tests drive advanced-mode controls, so enable it
+    // explicitly via the property WRITE rather than assuming the upstream default.
+    QGCCorePlugin::instance()->setProperty("showAdvancedUI", true);
+    QVERIFY2(QGCCorePlugin::instance()->showAdvancedUI(), "Failed to enable Advanced UI mode");
 
     // Ignore benign Qt platform warnings that cannot be avoided in offscreen mode
     ignoreLogMessage("default", QtWarningMsg,

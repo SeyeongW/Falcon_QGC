@@ -1,12 +1,8 @@
 name: Custom Build
 
 on:
-  push:
-    branches: [master]
-    paths-ignore:
-      - 'docs/**'
-  pull_request:
-  merge_group:
+  # The custom-example variant build is redundant for this fork — the Linux CI
+  # already builds the real custom (FGC). Kept runnable on demand via the Actions tab.
   workflow_dispatch:
 
 concurrency:
