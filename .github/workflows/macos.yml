@@ -1,16 +1,8 @@
 name: MacOS
 
 on:
-  push:
-    branches:
-      - master
-      - 'Stable*'
-    tags:
-      - 'v*'
-    paths-ignore:
-      - 'docs/**'
-  pull_request:
-  merge_group:
+  # Non-Linux platform CI is disabled for this fork (Linux/custom build only).
+  # Kept runnable on demand via the Actions tab.
   workflow_dispatch:
     inputs:
       build_type:
