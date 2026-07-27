@@ -244,7 +244,9 @@ Item {
         const cosLatitude = Math.cos(referenceCoordinate.latitude * Math.PI / 180)
         const xMeters = (coordinate.longitude - referenceCoordinate.longitude)
                 * cosLatitude * _metersPerDegree
-        const zMeters = (coordinate.latitude - referenceCoordinate.latitude)
+        // Qt Quick 3D uses a right-handed Y-up coordinate system. Keep east on
+        // +X and map north to -Z so the route is not mirrored.
+        const zMeters = (referenceCoordinate.latitude - coordinate.latitude)
                 * _metersPerDegree
         const relativeAltitude = altitude - referenceAltitude
 
@@ -312,7 +314,7 @@ Item {
                 const headingRadians = headingDegrees * Math.PI / 180
                 return Qt.vector3d(Math.sin(headingRadians),
                                    0,
-                                   Math.cos(headingRadians))
+                                   -Math.cos(headingRadians))
             }
         }
 
