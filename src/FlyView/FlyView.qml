@@ -50,10 +50,16 @@ Item {
     property real   _videoPaneShare:        0.50
     property real   _consolePaneShare:      0.50
     readonly property real _leftPaneWidth:  width * _leftPaneRatio
-    readonly property real _paneSpacing:    Math.max(2, ScreenTools.defaultFontPixelWidth * 0.25)
+    // Panels no longer draw an enclosing border, so the gutter is what separates
+    // them. It is sized to Carbon spacing-03 rather than a hairline gap.
+    readonly property real _paneSpacing:    Math.max(8, ScreenTools.defaultFontPixelWidth * 0.9)
     readonly property real _topSquareSize:  Math.max(0, (_leftPaneWidth - _paneSpacing) / 2)
     property real   _topPaneHeight:         _topSquareSize
-    readonly property real _leftPaneHeight: Math.max(0, mapHolder.height - toolbar.height)
+    // Height reserved for the bottom toolbar strip. The strip is hidden in this
+    // build -- the fly view is a full-bleed instrument surface -- so it reserves
+    // nothing; the binding keeps the layout correct if it is ever shown again.
+    readonly property real _bottomChromeHeight: toolbar.visible ? toolbar.height : 0
+    readonly property real _leftPaneHeight: Math.max(0, mapHolder.height - _bottomChromeHeight)
     readonly property real _stackedPaneHeight: Math.max(0, _leftPaneHeight - _topPaneHeight - _paneSpacing * 2)
     readonly property real _videoPaneHeight: _stackedPaneHeight * _videoPaneShare
     readonly property real _modelPaneHeight: _stackedPaneHeight - _videoPaneHeight
@@ -66,7 +72,29 @@ Item {
     // GCS emphasizes what matters at each stage (status on takeoff, map on
     // cruise, video on target approach). A manual divider drag pins the layout by
     // switching this off; the AUTO toggle turns it back on.
+    // A manual divider drag temporarily pins the split (and suspends the
+    // animations so dragging stays responsive); the next mission-phase
+    // transition re-arms it. There is deliberately no on-screen AUTO/MANUAL
+    // control -- the behaviour is self-correcting, so the chrome was noise.
     property bool   phaseAdaptiveLayout: true
+
+    // Target detection/approach (phase 2) inverts the main split: the camera feed
+    // takes over the large right-hand pane and the map drops to a small corner
+    // inset, because at that point the operator is flying off the video, not the
+    // map. Only engaged while the layout is AUTO.
+    readonly property bool _videoFocusMode: phaseAdaptiveLayout && customOverlay.missionPhase === 2
+
+    // --- Video source selection ---------------------------------------------
+    // The ROS topic feed and the stock RTSP/UDP stream are both first-class
+    // sources; which one fills the video pane is an operator choice, persisted
+    // across runs. The stream itself is configured as usual under
+    // Application Settings > Video.
+    readonly property string _videoSourceSettingsKey: "FlyViewUseRosVideoSource"
+    readonly property bool  _rosVideoAvailable: (typeof customRosEnabled !== 'undefined') && customRosEnabled
+    property bool   useRosVideoSource:  true
+    readonly property bool _rosVideoShown: _rosVideoAvailable && useRosVideoSource
+
+    onUseRosVideoSourceChanged: QGroundControl.saveBoolGlobalSetting(_videoSourceSettingsKey, useRosVideoSource)
 
     function _calcCenterViewPort() {
         var newToolInset = Qt.rect(0, 0, width, height)
@@ -78,13 +106,18 @@ Item {
     }
 
     // Per-phase target split ratios. Indices match MissionPhasePanel phases:
-    // 0 pre-check (status), 1 takeoff/recon (map), 2 detect/approach (video),
-    // 3 return/landing (map + status). Returns null for unknown phases (-1).
+    // 0 pre-check (sensor status + attitude), 1 takeoff/recon (map), 2
+    // detect/approach (video takes the main pane, see _videoFocusMode), 3
+    // return/landing (map + status). Returns null for unknown phases (-1).
     function _phaseLayoutTargets(phase) {
         switch (phase) {
-        case 0:  return { left: 0.40, video: 0.50, topFactor: 1.20 }
+        // Pre-flight: widen the left column and grow the attitude/status row so
+        // the instruments and the sensor checklist are both readable.
+        case 0:  return { left: 0.46, video: 0.26, topFactor: 1.32 }
         case 1:  return { left: 0.30, video: 0.38, topFactor: 1.00 }
-        case 2:  return { left: 0.55, video: 0.72, topFactor: 0.82 }
+        // Detection: the left video pane collapses because the feed has moved to
+        // the main pane; the freed height goes to the mission route.
+        case 2:  return { left: 0.28, video: 0.00, topFactor: 0.90 }
         case 3:  return { left: 0.34, video: 0.42, topFactor: 1.10 }
         default: return null
         }
@@ -123,11 +156,20 @@ Item {
     }
 
     onPhaseAdaptiveLayoutChanged: if (phaseAdaptiveLayout) _applyPhaseLayout()
-    Component.onCompleted: _applyPhaseLayout()
+
+    Component.onCompleted: {
+        _applyPhaseLayout()
+        useRosVideoSource = QGroundControl.loadBoolGlobalSetting(_videoSourceSettingsKey, true)
+    }
 
     Connections {
         target: customOverlay
-        function onMissionPhaseChanged() { _root._applyPhaseLayout() }
+        function onMissionPhaseChanged() {
+            // Re-arm after any manual drag, so each phase starts from its
+            // intended layout.
+            _root.phaseAdaptiveLayout = true
+            _root._applyPhaseLayout()
+        }
     }
 
     QGCToolInsets {
@@ -144,7 +186,7 @@ Item {
 
         Rectangle {
             anchors.fill:   parent
-            color:          "#071526"
+            color:          "#000000"
         }
 
         Item {
@@ -152,7 +194,7 @@ Item {
             anchors.left:           parent.left
             anchors.top:            parent.top
             anchors.bottom:         parent.bottom
-            anchors.bottomMargin:   toolbar.height
+            anchors.bottomMargin:   _bottomChromeHeight
             width:                  _leftPaneWidth
         }
 
@@ -182,7 +224,7 @@ Item {
             anchors.right:          parent.right
             anchors.top:            parent.top
             anchors.bottom:         parent.bottom
-            anchors.bottomMargin:   toolbar.height
+            anchors.bottomMargin:   _bottomChromeHeight
             clip:                   true
         }
 
@@ -192,8 +234,8 @@ Item {
             anchors.right:          leftPane.right
             y:                      _topPaneHeight
             height:                 _paneSpacing
-            color:                  "#38BDF8"
-            opacity:                0.65
+            color:                  "#82CFFF"
+            opacity:                0.18
             z:                      QGroundControl.zOrderWidgets
 
             MouseArea {
@@ -227,8 +269,8 @@ Item {
             y:                      0
             width:                  _paneSpacing
             height:                 _topPaneHeight
-            color:                  "#38BDF8"
-            opacity:                0.65
+            color:                  "#82CFFF"
+            opacity:                0.18
             z:                      QGroundControl.zOrderWidgets
 
             MouseArea {
@@ -256,10 +298,10 @@ Item {
             anchors.left:           leftPane.right
             anchors.top:            parent.top
             anchors.bottom:         parent.bottom
-            anchors.bottomMargin:   toolbar.height
+            anchors.bottomMargin:   _bottomChromeHeight
             width:                  _paneSpacing
-            color:                  "#38BDF8"
-            opacity:                0.65
+            color:                  "#82CFFF"
+            opacity:                0.18
             z:                      QGroundControl.zOrderWidgets
 
             MouseArea {
@@ -286,8 +328,11 @@ Item {
             anchors.right:          leftPane.right
             anchors.bottom:         videoPane.top
             height:                 _paneSpacing
-            color:                  "#38BDF8"
-            opacity:                0.65
+            color:                  "#82CFFF"
+            opacity:                0.18
+            // Collapsed in video-focus mode, where there is no video pane left to
+            // resize and the handle would otherwise float at the pane bottom.
+            visible:                _videoPaneHeight > 0
             z:                      QGroundControl.zOrderWidgets
 
             MouseArea {
@@ -309,9 +354,35 @@ Item {
             }
         }
 
+        // Small map inset used while the camera feed owns the main pane. Sized as
+        // a fraction of the main pane so it stays legible on any window size.
+        Item {
+            id:                     cornerMapPane
+            parent:                 mapPane
+            anchors.right:          parent.right
+            anchors.bottom:         parent.bottom
+            anchors.margins:        _toolsMargin
+            width:                  Math.max(ScreenTools.defaultFontPixelWidth * 24, parent.width * 0.26)
+            height:                 Math.max(ScreenTools.defaultFontPixelHeight * 10, parent.height * 0.30)
+            visible:                _videoFocusMode
+            z:                      _fullItemZorder + 1.5
+            clip:                   true
+        }
+
+        // PipState.fullState reparents and anchors the map to `pipView.parent`
+        // through a State, which is applied once on init. Reparenting the PipView
+        // afterwards therefore leaves the map behind -- that is why the corner map
+        // came up empty in phase 2. Instead the PipView keeps a fixed host and the
+        // host's geometry is what moves, so the anchors stay live.
+        Item {
+            id:                     mapHost
+            parent:                 _videoFocusMode ? cornerMapPane : mapPane
+            anchors.fill:           parent
+        }
+
         PipView {
             id:                     mapLayout
-            parent:                 mapPane
+            parent:                 mapHost
             anchors.fill:           parent
             item1IsFullSettingsKey: "MainFlyWindowIsMap"
             item1:                  mapControl
@@ -330,9 +401,26 @@ Item {
             visible:                !_is3DMode
         }
 
+        // Same host indirection as the map: FlyViewVideo is anchored to
+        // `pipView.parent` by PipState, so the host is what gets reparented.
+        // Whichever source is selected is the one promoted to the main pane in
+        // video-focus mode.
+        Item {
+            id:                     videoHost
+            parent:                 (_videoFocusMode && !_rosVideoShown) ? mapPane : videoPane
+            // Sits below the source selector rather than under it.
+            anchors.left:           parent.left
+            anchors.right:          parent.right
+            anchors.top:            videoSourceSelector.visible ? videoSourceSelector.bottom : parent.top
+            anchors.bottom:         parent.bottom
+            anchors.topMargin:      videoSourceSelector.visible ? _toolsMargin : 0
+            visible:                !_rosVideoShown
+            z:                      _fullItemZorder + 1
+        }
+
         PipView {
             id:                     videoLayout
-            parent:                 videoPane
+            parent:                 videoHost
             anchors.fill:           parent
             item1IsFullSettingsKey: "MainFlyWindowIsVideo"
             item1:                  videoControl
@@ -344,6 +432,53 @@ Item {
             pipView:    videoLayout
         }
 
+        // ROS AI vision feed (topic picker + AR waypoint overlay). Loaded by URL
+        // rather than imported so this core view stays free of Custom.Ros, which
+        // only exists in the ROS-enabled custom build. Unloaded entirely when the
+        // operator selects the RTSP/UDP stream instead.
+        Loader {
+            id:             rosVideoLoader
+            parent:         _videoFocusMode ? mapPane : videoPane
+            anchors.left:   parent.left
+            anchors.right:  parent.right
+            anchors.top:    videoSourceSelector.visible ? videoSourceSelector.bottom : parent.top
+            anchors.bottom: parent.bottom
+            anchors.topMargin: videoSourceSelector.visible ? _toolsMargin : 0
+            z:              _fullItemZorder + 1
+            active:         _rosVideoShown
+            source:         active ? "qrc:/qml/Custom/Widgets/RosVideoPanel.qml" : ""
+            visible:        active && !QGroundControl.videoManager.fullScreen
+        }
+
+        // Video source selection field, pinned to the top of whichever pane is
+        // currently showing the video. Owns both the ROS topic list and the
+        // RTSP/UDP stream address, so there is one place to configure the feed.
+        // Absent in non-ROS builds, where there is only one source to pick.
+        Loader {
+            id:                     videoSourceSelector
+            parent:                 _videoFocusMode ? mapPane : videoPane
+            anchors.left:           parent.left
+            anchors.right:          parent.right
+            anchors.top:            parent.top
+            anchors.margins:        _toolsMargin
+            z:                      _fullItemZorder + 3
+            active:                 _rosVideoAvailable
+            source:                 active ? "qrc:/qml/Custom/Widgets/VideoSourceSelector.qml" : ""
+            visible:                active && !QGroundControl.videoManager.fullScreen
+
+            // Seed the field from the restored setting; from then on the field is
+            // the one that drives the fly view (see Connections below).
+            onLoaded: item.useRosSource = _root.useRosVideoSource
+        }
+
+        Connections {
+            target:  videoSourceSelector.item
+            ignoreUnknownSignals: true
+            function onUseRosSourceChanged() {
+                _root.useRosVideoSource = videoSourceSelector.item.useRosSource
+            }
+        }
+
         FlyViewWidgetLayer {
             id:                     widgetLayer
             parent:                 mapPane
@@ -353,52 +488,6 @@ Item {
             parentToolInsets:       _toolInsets
             mapControl:             _mapControl
             visible:                !QGroundControl.videoManager.fullScreen
-        }
-
-        // AUTO / MANUAL toggle for the mission-phase adaptive layout. A manual
-        // divider drag pins the layout (MANUAL); this switches it back to AUTO.
-        Rectangle {
-            id:                     phaseLayoutToggle
-            parent:                 mapPane
-            anchors.top:            parent.top
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.topMargin:      _toolsMargin
-            z:                      QGroundControl.zOrderWidgets
-            width:                  toggleRow.implicitWidth + ScreenTools.defaultFontPixelWidth * 2
-            height:                 ScreenTools.defaultFontPixelHeight * 1.7
-            radius:                 4
-            color:                  Qt.rgba(0.03, 0.08, 0.14, 0.85)
-            border.width:           1
-            border.color:           _root.phaseAdaptiveLayout ? "#38BDF8" : Qt.rgba(0.34, 0.59, 0.71, 0.55)
-            visible:                !QGroundControl.videoManager.fullScreen
-
-            Row {
-                id:                 toggleRow
-                anchors.centerIn:   parent
-                spacing:            ScreenTools.defaultFontPixelWidth * 0.4
-
-                Rectangle {
-                    width:                  ScreenTools.defaultFontPixelWidth * 0.9
-                    height:                 width
-                    radius:                 width / 2
-                    anchors.verticalCenter: parent.verticalCenter
-                    color:                  _root.phaseAdaptiveLayout ? "#22C55E" : "#64748B"
-                }
-
-                QGCLabel {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text:                   _root.phaseAdaptiveLayout ? qsTr("AUTO LAYOUT") : qsTr("MANUAL")
-                    color:                  "white"
-                    font.bold:              true
-                    font.pointSize:         ScreenTools.smallFontPointSize
-                }
-            }
-
-            MouseArea {
-                anchors.fill:   parent
-                cursorShape:    Qt.PointingHandCursor
-                onClicked:      _root.phaseAdaptiveLayout = !_root.phaseAdaptiveLayout
-            }
         }
 
         FlyViewCustomLayer {
@@ -437,7 +526,7 @@ Item {
             anchors.right:      parent.right
             anchors.top:        parent.top
             anchors.bottom:     parent.bottom
-            anchors.bottomMargin: toolbar.height
+            anchors.bottomMargin: _bottomChromeHeight
             z:                  QGroundControl.zOrderTopMost
             visible:            false
         }
@@ -471,6 +560,10 @@ Item {
         id:                 toolbar
         anchors.bottom:     parent.bottom
         guidedValueSlider:  _guidedValueSlider
-        visible:            !QGroundControl.videoManager.fullScreen
+        // Hidden: the mission is flown autonomously and the strip's content is
+        // already covered by the custom panels (arm state, flight mode, GPS and
+        // battery in the pre-flight panel; phase and progress in the mission
+        // console). Set to true to bring the stock strip back.
+        visible:            false
     }
 }

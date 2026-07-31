@@ -43,11 +43,22 @@ Item {
     property string _messageTitle:          ""
     property string _messageText:           ""
     property real   _toolsMargin:           ScreenTools.defaultFontPixelWidth * 0.75
-    readonly property color  _falconNavy:   "#071526"
-    readonly property color  _falconPanel:  "#0B1D33"
-    readonly property color  _falconCyan:   "#38BDF8"
+    readonly property color  _falconNavy:   FalconTheme.base
+    readonly property color  _falconPanel:  FalconTheme.surface2
+    readonly property color  _falconCyan:   FalconTheme.accent
     readonly property color  _falconBlue:   "#1D4ED8"
-    readonly property color  _falconMint:   "#5796B4"
+    readonly property color  _falconMint:   FalconTheme.textMuted
+
+    // --- phase-driven emphasis ----------------------------------------------
+    // Exactly one panel carries the left accent bar at a time. If everything is
+    // emphasised, nothing is. Phase 0 and the route phases (1, 3) put the bar on
+    // the lower panel; with no orchestrator link the mission console is what the
+    // operator needs, so the bar sits there instead. Phase 2 marks neither -- the
+    // video is emphasised by taking over the whole main pane.
+    readonly property bool consoleIsFocus:    missionPhase < 0
+    readonly property bool lowerPanelIsFocus: missionPhase === 0
+                                              || missionPhase === 1
+                                              || missionPhase === 3
 
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value))
@@ -71,35 +82,79 @@ Item {
         return fact.enumOrValueString + (showUnits && fact.units ? " " + fact.units : "")
     }
 
+    // Avionics readout stack: a dim, wide-tracked uppercase caption above a large
+    // tabular-figure value. Caption and value are on separate lines (not side by
+    // side) so a column of readouts aligns on the numbers, which is what the eye
+    // scans in flight.
     component TelemetryCorner: Column {
         property var  values: []
-        property real labelFontPixelSize: ScreenTools.defaultFontPixelHeight * 0.6
-        property real valueFontPixelSize: ScreenTools.defaultFontPixelHeight * 0.72
+        property real labelFontPixelSize: FalconTheme.fontCaption
+        property real valueFontPixelSize: FalconTheme.fontValue
 
-        spacing: ScreenTools.defaultFontPixelHeight * 0.1
+        spacing: FalconTheme.space2
 
         Repeater {
             model: values
 
-            Row {
-                spacing: ScreenTools.defaultFontPixelWidth * 0.35
+            Column {
+                spacing: 0
 
                 QGCLabel {
-                    anchors.baseline: valueLabel.baseline
-                    text:             modelData.label
-                    color:            _falconMint
-                    font.bold:        false
-                    font.pixelSize:   labelFontPixelSize
+                    text:                modelData.label
+                    color:               FalconTheme.textMuted
+                    font.family:         FalconTheme.fontFamily
+                    font.pixelSize:      labelFontPixelSize
+                    font.letterSpacing:  FalconTheme.captionLetterSpacing
                 }
 
                 QGCLabel {
-                    id:               valueLabel
-                    text:             telemetryValue(modelData.fact, modelData.showUnits)
-                    color:            "white"
-                    font.bold:        false
-                    font.pixelSize:   valueFontPixelSize
+                    text:            telemetryValue(modelData.fact, modelData.showUnits)
+                    color:           FalconTheme.textPrimary
+                    font.family:     FalconTheme.fontFamilyMono
+                    font.pixelSize:  valueFontPixelSize
                 }
             }
+        }
+    }
+
+    /// Single signed-degree attitude value with a caption above it. Tints amber
+    /// once |angle| reaches warnAngle so an excessive bank/pitch stands out.
+    component AngleReadout: Column {
+        property string label
+        property real   angle:      0
+        property real   warnAngle:  0       // 0 disables the warning tint
+        property bool   wrap360:    false   // heading style: 000-359, zero padded
+        property real   labelFontPixelSize: ScreenTools.defaultFontPixelHeight * 0.6
+        property real   valueFontPixelSize: ScreenTools.defaultFontPixelHeight * 0.72
+
+        spacing: ScreenTools.defaultFontPixelHeight * 0.05
+
+        QGCLabel {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text:               parent.label
+            color:              FalconTheme.textMuted
+            font.pixelSize:     parent.labelFontPixelSize
+            font.letterSpacing: FalconTheme.captionLetterSpacing
+        }
+
+        QGCLabel {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: {
+                if (!_activeVehicle) {
+                    return qsTr("–")
+                }
+                if (parent.wrap360) {
+                    const wrapped = ((parent.angle % 360) + 360) % 360
+                    return ("00" + wrapped.toFixed(0)).slice(-3) + "°"
+                }
+                // Signed, so the operator reads the direction of the bank/pitch
+                // and not just its magnitude.
+                return (parent.angle >= 0 ? "+" : "−") + Math.abs(parent.angle).toFixed(1) + "°"
+            }
+            color: (parent.warnAngle > 0 && Math.abs(parent.angle) >= parent.warnAngle)
+                       ? FalconTheme.caution : FalconTheme.textPrimary
+            font.family:    FalconTheme.fontFamilyMono
+            font.pixelSize: parent.valueFontPixelSize
         }
     }
 
@@ -155,11 +210,22 @@ Item {
 
         Rectangle {
             anchors.fill:           parent
-            radius:                 6
-            color:                  Qt.rgba(0.03, 0.08, 0.14, 0.90)
-            border.color:           Qt.rgba(0.22, 0.74, 0.97, 0.75)
-            border.width:           1
+            radius:                 FalconTheme.radiusPanel
+            color:                  FalconTheme.surface1
+            border.width:           0
             clip:                   true
+
+            // Left accent bar: marks the panel this phase is about, giving
+            // hierarchy without enclosing anything in another box.
+            Rectangle {
+                anchors.left:       parent.left
+                anchors.top:        parent.top
+                anchors.bottom:     parent.bottom
+                width:              FalconTheme.activeBarWidth
+                color:              FalconTheme.accent
+                z:                  10
+                visible:            root.consoleIsFocus
+            }
 
             ColumnLayout {
                 anchors.fill:       parent
@@ -207,7 +273,7 @@ Item {
                         Layout.alignment:     Qt.AlignRight | Qt.AlignVCenter
                         horizontalAlignment:  Text.AlignRight
                         text:                 _activeVehicle ? qsTr("VEHICLE") : qsTr("STANDBY")
-                        color:                _activeVehicle ? "#86EFAC" : "#FCD34D"
+                        color:                _activeVehicle ? "#86EFAC" : FalconTheme.caution
                         font.bold:            true
                         font.pointSize:       ScreenTools.smallFontPointSize
                     }
@@ -259,7 +325,7 @@ Item {
         width:                      ScreenTools.defaultFontPixelWidth  * 50
         anchors.top:                parent.top
         anchors.topMargin:          _toolsMargin
-        color:                      Qt.rgba(0.03, 0.08, 0.14, 0.88)
+        color:                      FalconTheme.surface1
         radius:                     5
         border.color:               Qt.rgba(0.34, 0.59, 0.71, 0.62)
         border.width:               1
@@ -347,11 +413,23 @@ Item {
         Rectangle {
             id:                     controlSurfacePanel
             anchors.fill:           parent
-            radius:                 6
-            color:                  Qt.rgba(0.03, 0.08, 0.14, 0.92)
-            border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
-            border.width:           1
+            radius:                 FalconTheme.radiusPanel
+            color:                  FalconTheme.surface1
+            border.width:           0
             clip:                   true
+
+            // Left accent bar: marks the panel this phase is about, giving
+            // hierarchy without enclosing anything in another box.
+            Rectangle {
+                anchors.left:       parent.left
+                anchors.top:        parent.top
+                anchors.bottom:     parent.bottom
+                width:              FalconTheme.activeBarWidth
+                color:              FalconTheme.accent
+                z:                  10
+                visible:            root.lowerPanelIsFocus
+            }
+
 
             readonly property bool route3DReady: root.use3DRouteView
                                                  && route3DLoader.status === Loader.Ready
@@ -380,15 +458,31 @@ Item {
                             "loader size:", route3DLoader.width, "x", route3DLoader.height)
             }
 
+            // During pre-flight the mission route has nothing to report, so the
+            // pane shows the pre-arm/sensor status instead. It hands the pane
+            // back to the route views as soon as phase 0 completes.
+            readonly property bool preflightFocus: root.missionPhase === 0
+
             MissionRouteView {
                 id:                missionRouteView
                 anchors.fill:      parent
                 anchors.margins:   _toolsMargin
                 z:                 0
-                visible:           true
+                visible:           !controlSurfacePanel.preflightFocus
+                // Keep the info table, drop the 2D route drawing whenever the
+                // (transparent) 3D view is covering that same area.
+                routeAreaVisible:  !controlSurfacePanel.route3DActive
                 missionController: root._missionController
                 activeVehicle:     root._activeVehicle
                 missionAvailable:  root._activeVehicle ? true : false
+            }
+
+            PreflightStatusPanel {
+                anchors.fill:    parent
+                anchors.margins: _toolsMargin
+                z:               2
+                visible:         controlSurfacePanel.preflightFocus
+                vehicle:         root._activeVehicle
             }
 
             Loader {
@@ -398,7 +492,7 @@ Item {
                 width:   missionRouteView.routeAreaWidth
                 height:  missionRouteView.height
                 active:  root.use3DRouteView
-                visible: controlSurfacePanel.route3DActive
+                visible: controlSurfacePanel.route3DActive && !controlSurfacePanel.preflightFocus
                 opacity: 1
                 z:       1
                 source:  active ? "qrc:/qml/Custom/Widgets/MissionRoute3DView.qml" : ""
@@ -501,6 +595,7 @@ Item {
                                                           <= routeRight - _toolsMargin
 
                 visible: !controlSurfacePanel.route3DActive
+                         && !controlSurfacePanel.preflightFocus
                          && missionRouteView.hasMissionData
                          && missionRouteView.routeDataValid
                 width:   layerSize
@@ -594,10 +689,9 @@ Item {
 
         Rectangle {
             anchors.fill:       parent
-            radius:             6
-            color:              Qt.rgba(0.03, 0.08, 0.14, 0.92)
-            border.color:       Qt.rgba(0.34, 0.59, 0.71, 0.70)
-            border.width:       1
+            radius:             FalconTheme.radiusPanel
+            color:              FalconTheme.surface1
+            border.width:       0
         }
 
         Item {
@@ -610,10 +704,50 @@ Item {
                 readonly property real _compassSize:        Math.min(width * 0.55, height * 0.60)
 
                 CustomAttitudeWidget {
-                    anchors.centerIn:   parent
+                    id:                 attitudeDial
+                    anchors.horizontalCenter:   parent.horizontalCenter
+                    anchors.verticalCenter:     parent.verticalCenter
+                    // Lift the dial so the numeric readout below it stays inside
+                    // the panel instead of overlapping the bottom telemetry.
+                    anchors.verticalCenterOffset: -attitudeReadout.height * 0.55
                     size:               flightInfoSection._compassSize
                     vehicle:            _activeVehicle
                     showHeading:        true
+                }
+
+                // Numeric bank/pitch readout. The artificial horizon shows the
+                // attitude, but not *how much* the airframe is tilted — during
+                // cruise and transition that number is what the operator reads.
+                Row {
+                    id:                         attitudeReadout
+                    anchors.horizontalCenter:   parent.horizontalCenter
+                    anchors.top:                attitudeDial.bottom
+                    anchors.topMargin:          flightInfoSection._contentMargin * 0.5
+                    spacing:                    flightInfoSection._contentMargin * 1.4
+
+                    AngleReadout {
+                        label:              qsTr("ROLL")
+                        angle:              _activeVehicle ? _activeVehicle.roll.rawValue : 0
+                        warnAngle:          35
+                        labelFontPixelSize: flightInfoSection._labelFontPixelSize
+                        valueFontPixelSize: flightInfoSection._infoFontPixelSize
+                    }
+
+                    AngleReadout {
+                        label:              qsTr("PITCH")
+                        angle:              _activeVehicle ? _activeVehicle.pitch.rawValue : 0
+                        warnAngle:          25
+                        labelFontPixelSize: flightInfoSection._labelFontPixelSize
+                        valueFontPixelSize: flightInfoSection._infoFontPixelSize
+                    }
+
+                    AngleReadout {
+                        label:              qsTr("YAW")
+                        angle:              _activeVehicle ? _activeVehicle.heading.rawValue : 0
+                        wrap360:            true
+                        labelFontPixelSize: flightInfoSection._labelFontPixelSize
+                        valueFontPixelSize: flightInfoSection._infoFontPixelSize
+                    }
                 }
 
                 TelemetryCorner {

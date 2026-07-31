@@ -2,6 +2,7 @@ import QtQuick
 
 import QGroundControl
 import QGroundControl.Controls
+import Custom.Widgets
 
 Rectangle {
     id: root
@@ -16,7 +17,7 @@ Rectangle {
     clip:         true
 
     readonly property real _panelMargin: ScreenTools.defaultFontPixelWidth * 0.75
-    readonly property color _accent: "#38BDF8"
+    readonly property color _accent: FalconTheme.accent
 
     Item {
         id:             header

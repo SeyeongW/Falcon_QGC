@@ -20,9 +20,14 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/${QGC_CUSTOM_DIR}/res/icons/custom_qgroundcontrol
     set(QGC_MACOS_ICON_PATH "${CMAKE_SOURCE_DIR}/${QGC_CUSTOM_DIR}/res/icons/custom_qgroundcontrol.icns" CACHE FILEPATH "MacOS Icon Path" FORCE)
 endif()
 
-# Linux AppImage Icon
+# Linux AppImage Icon (scalable SVG + 256x256 PNG). The PNG is what file
+# managers and the AppImage .DirIcon use, so override it too — otherwise the
+# stock QGroundControl logo shows instead of the FGC icon.
 if(EXISTS "${CMAKE_SOURCE_DIR}/${QGC_CUSTOM_DIR}/res/icons/custom_qgroundcontrol.svg")
     set(QGC_APPIMAGE_ICON_SCALABLE_PATH "${CMAKE_SOURCE_DIR}/${QGC_CUSTOM_DIR}/res/icons/custom_qgroundcontrol.svg" CACHE FILEPATH "AppImage Icon SVG Path" FORCE)
+endif()
+if(EXISTS "${CMAKE_SOURCE_DIR}/${QGC_CUSTOM_DIR}/res/icons/custom_qgroundcontrol.png")
+    set(QGC_APPIMAGE_ICON_256_PATH "${CMAKE_SOURCE_DIR}/${QGC_CUSTOM_DIR}/res/icons/custom_qgroundcontrol.png" CACHE FILEPATH "AppImage 256x256 Icon Path" FORCE)
 endif()
 
 # Windows Installer Header

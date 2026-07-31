@@ -4,6 +4,9 @@
         <file alias="opensans-demibold">resources/fonts/OpenSans-Semibold.ttf</file>
         <file alias="NanumGothic-Regular">resources/fonts/NanumGothic-Regular.ttf</file>
         <file alias="NanumGothic-Bold">resources/fonts/NanumGothic-Bold.ttf</file>
+        <file alias="IBMPlexSans-Regular">resources/fonts/IBMPlexSans-Regular.ttf</file>
+        <file alias="IBMPlexSans-SemiBold">resources/fonts/IBMPlexSans-SemiBold.ttf</file>
+        <file alias="IBMPlexMono-Regular">resources/fonts/IBMPlexMono-Regular.ttf</file>
     </qresource>
     <qresource prefix="/res">
         <file alias="BingNoTileBytes.dat">resources/BingNoTileBytes.dat</file>

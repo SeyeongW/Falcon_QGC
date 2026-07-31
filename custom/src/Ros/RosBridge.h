@@ -131,8 +131,15 @@ private:
     QTimer _fpsTimer;                            ///< 1 Hz frame-rate accounting
     QTimer _discoveryTimer;                      ///< periodic topic re-scan
 
+    /// Pick a feed to subscribe to when the operator has not chosen one, so a
+    /// freshly launched GCS shows video without a manual dropdown step.
+    void _autoSelectImageTopic();
+    /// Shared implementation; `userPicked` latches off auto-selection.
+    void _setImageTopic(const QString &topic, bool userPicked);
+
     QString _imageTopic;
     QStringList _imageTopics;
+    bool _userPickedTopic = false;      ///< operator chose explicitly; never auto-override
     int _frameCounter = 0;
     int _imageFps = 0;
 

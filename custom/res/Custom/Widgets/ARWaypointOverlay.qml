@@ -5,6 +5,7 @@ import QtQuick3D
 
 import QGroundControl
 import QGroundControl.Controls
+import Custom.Widgets
 
 /// Augmented-reality overlay for the camera feed. A transparent View3D is used
 /// purely as a projection engine: its PerspectiveCamera mirrors the real camera
@@ -27,7 +28,7 @@ Item {
     property real cameraPitchOffset: 0      ///< Fixed mount/gimbal tilt in degrees, positive tilts the view down.
     property bool showPath:          true   ///< Draw the path line connecting upcoming waypoints.
 
-    readonly property color _accent: "#38BDF8"
+    readonly property color _accent: FalconTheme.accent
 
     // 1 degree of latitude in meters (equirectangular approximation, same value
     // used by MissionRoute3DView).

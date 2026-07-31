@@ -28,10 +28,52 @@ Item {
     property string routeDetailText:        ""
     property real   horizontalError:        Number.NaN
     property real   verticalError:          Number.NaN
-    property real   altitudeDrop:           Number.NaN
-    property real   maximumAccelerationG:   Number.NaN
     property string missionTimeText:        "--"
-    property int    estimatedScore:         -1
+
+    // The info table used to carry ALT DROP / MAX ACC / SCORE EST. Nothing in the
+    // codebase ever assigned them, so those three rows showed "--" permanently
+    // while taking up half the table. They are replaced by values derived from
+    // live vehicle facts.
+    // Airspeed is the number that matters to a VTOL/fixed-wing airframe -- stall
+    // margin and transition threshold are both airspeed, not ground speed. Ground
+    // speed is still shown beside it because the gap between the two *is* the
+    // headwind/tailwind component, and it is what ETA has to be computed from.
+    readonly property real _groundSpeed: (activeVehicle && activeVehicle.groundSpeed)
+                                             ? activeVehicle.groundSpeed.rawValue : Number.NaN
+    readonly property real _airSpeed: (activeVehicle && activeVehicle.airSpeed)
+                                          ? activeVehicle.airSpeed.rawValue : Number.NaN
+
+    readonly property string _speedText: {
+        const air = isFinite(_airSpeed) ? Number(_airSpeed).toFixed(1) : "--"
+        const gnd = isFinite(_groundSpeed) ? Number(_groundSpeed).toFixed(1) : "--"
+        return air + " / " + gnd
+    }
+    readonly property real _batteryPercent: (activeVehicle && activeVehicle.batteries.count > 0)
+                                                ? activeVehicle.batteries.get(0).percentRemaining.rawValue
+                                                : Number.NaN
+
+    /// Time to the active waypoint. Deliberately ground speed, not airspeed: the
+    /// remaining distance is measured over the ground, so dividing it by airspeed
+    /// would be wrong by the whole wind component. Meaningless below walking pace
+    /// (the figure explodes), so it degrades to "--" instead.
+    readonly property string _etaText: {
+        if (!isFinite(horizontalError) || !isFinite(_groundSpeed) || _groundSpeed < 0.5) {
+            return "--"
+        }
+        const seconds = Math.round(horizontalError / _groundSpeed)
+        if (seconds >= 3600) {
+            return "> 1h"
+        }
+        const minutes = Math.floor(seconds / 60)
+        const remainder = seconds % 60
+        return minutes + ":" + (remainder < 10 ? "0" : "") + remainder
+    }
+
+    /// Hides the 2D route drawing while keeping the info table and the route
+    /// area's geometry. The 3D view is overlaid on exactly this area and now has
+    /// a transparent background, so leaving the 2D route drawn underneath shows
+    /// two overlapping routes and wrecks readability.
+    property bool   routeAreaVisible:       true
 
     readonly property real routeAreaRatio: 0.70
     readonly property real routeAreaWidth: routeArea.width
@@ -241,10 +283,10 @@ Item {
             qsTr("ROUTE"),
             qsTr("H ERROR"),
             qsTr("V ERROR"),
-            qsTr("ALT DROP"),
-            qsTr("MAX ACC"),
+            qsTr("AIR / GND"),
+            qsTr("ETA"),
             qsTr("TIME"),
-            qsTr("SCORE EST.")
+            qsTr("BATTERY")
         ]
         return labels[rowIndex]
     }
@@ -262,13 +304,13 @@ Item {
         case 2:
             return isFinite(verticalError) ? Number(verticalError).toFixed(1) : "--"
         case 3:
-            return isFinite(altitudeDrop) ? Number(altitudeDrop).toFixed(1) : "--"
+            return _speedText
         case 4:
-            return isFinite(maximumAccelerationG) ? Number(maximumAccelerationG).toFixed(2) : "--"
+            return _etaText
         case 5:
             return _validText(missionTimeText, "--")
         case 6:
-            return estimatedScore >= 0 ? String(estimatedScore) : "--"
+            return isFinite(_batteryPercent) ? Number(_batteryPercent).toFixed(0) : "--"
         default:
             return "--"
         }
@@ -278,10 +320,11 @@ Item {
         switch (rowIndex) {
         case 1:
         case 2:
-        case 3:
             return qsTr("m")
-        case 4:
-            return qsTr("G")
+        case 3:
+            return qsTr("m/s")
+        case 6:
+            return qsTr("%")
         default:
             return ""
         }
@@ -1210,6 +1253,7 @@ Item {
         anchors.top:    parent.top
         anchors.bottom: parent.bottom
         width:          parent.width * root.routeAreaRatio
+        visible:        root.routeAreaVisible
         clip:           true
     }
 
@@ -1232,14 +1276,19 @@ Item {
         anchors.bottom: parent.bottom
         color:          Qt.rgba(0.01, 0.04, 0.07, 0.28)
 
+        // Sized from both axes with low floors. The previous floors (11/15/18 px)
+        // were larger than the pane can afford once the mission-phase layout
+        // shrinks it, so the table stayed oversized and crowded everything out.
+        readonly property real _fontBasis: Math.min(width, height * 0.62)
+
         readonly property real infoLabelFontSize:
-            Math.max(11, Math.min(15, width * 0.055))
+            Math.max(7,  Math.min(13, _fontBasis * 0.055))
         readonly property real infoValueFontSize:
-            Math.max(15, Math.min(20, width * 0.080))
+            Math.max(9,  Math.min(16, _fontBasis * 0.075))
         readonly property real routeValueFontSize:
-            Math.max(18, Math.min(24, width * 0.095))
+            Math.max(10, Math.min(19, _fontBasis * 0.090))
         readonly property real routeDetailFontSize:
-            Math.max(10, Math.min(13, width * 0.050))
+            Math.max(6,  Math.min(11, _fontBasis * 0.048))
 
         Column {
             id: infoColumn

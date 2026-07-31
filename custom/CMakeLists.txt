@@ -67,8 +67,14 @@ if(QGC_ENABLE_ROS)
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/RosVideoPanel.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/RosActuatorSource.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionPhasePanel.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/VideoSourceSelector.qml
     )
 endif()
+
+# FalconTheme is a QML singleton (design tokens); it must be marked as such or
+# `import Custom.Widgets` will treat it as an ordinary component type.
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/FalconTheme.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Set resource aliases for custom widgets
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomArtificialHorizon.qml PROPERTIES QT_RESOURCE_ALIAS CustomArtificialHorizon.qml)
@@ -81,6 +87,7 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_B_mesh.mesh)
 qgc_set_qt_resource_alias(
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ARWaypointOverlay.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/FalconTheme.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ControlSurfaceWidget.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomAttitudeWidget.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomIconButton.qml
@@ -92,6 +99,7 @@ qgc_set_qt_resource_alias(
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRoute3DView.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRouteView.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MovablePanel.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/PreflightStatusPanel.qml
     ${CUSTOM_ROS_QML_FILES}
 )
 
@@ -105,7 +113,8 @@ qt_add_qml_module(CustomModule
     QML_FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ARWaypointOverlay.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ControlSurfaceWidget.qml
-        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomArtificialHorizon.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/FalconTheme.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomArtificialHorizon.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomAttitudeWidget.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomIconButton.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomOnOffSwitch.qml
@@ -117,6 +126,7 @@ qt_add_qml_module(CustomModule
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRoute3DView.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRouteView.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MovablePanel.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/PreflightStatusPanel.qml
         ${CUSTOM_ROS_QML_FILES}
     RESOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/aircraft_Body_mesh.mesh

@@ -16,6 +16,21 @@ case "$ARCH" in
     *)       MULTIARCH="" ;;
 esac
 
+# --- ROS2 runtime (VTOL-GCS / FGC custom build) ---
+# FGC links against ROS2 libraries and dlopen's the DDS/typesupport plugins at
+# runtime, which live in the host's ROS install (not bundled in the AppImage).
+# Source the host ROS environment so the app works on any machine that has the
+# matching ROS2 distro installed. Harmless if ROS is absent: the ROS-dependent
+# features simply stay inactive. Set QGC_NO_ROS=1 to skip. Override the distro
+# with ROS_DISTRO before launching.
+if [ -z "$QGC_NO_ROS" ]; then
+    _ros_setup="/opt/ros/${ROS_DISTRO:-humble}/setup.bash"
+    if [ -f "$_ros_setup" ]; then
+        # shellcheck disable=SC1090
+        source "$_ros_setup"
+    fi
+fi
+
 unset GIO_EXTRA_MODULES
 unset GIO_MODULE_DIR
 unset GIO_USE_VFS

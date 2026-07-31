@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 import QGroundControl
 import QGroundControl.Controls
+import Custom.Widgets
 
 import Custom.Ros
 
@@ -17,17 +18,29 @@ import Custom.Ros
 Rectangle {
     id: root
 
-    color: Qt.rgba(0.03, 0.08, 0.14, 0.94)
-    radius: 6
-    border.color: Qt.rgba(0.22, 0.74, 0.97, 0.70)
-    border.width: 1
+    color: FalconTheme.surface1
+    radius: FalconTheme.radiusPanel
+    border.color: FalconTheme.hairline
+    border.width: 0
     opacity: 0.98
 
+    // --- fit-to-box sizing ---------------------------------------------------
+    // The console pane shrinks with the mission phase, and the phase list must
+    // never be clipped or run under the neighbouring pane. The content is laid
+    // out at its natural size and then scaled down by a render transform to fit
+    // the box exactly. A transform does not feed back into the layout, so
+    // `layout.implicitHeight` stays stable and there is no binding loop --
+    // which a font-size-driven scale could not guarantee.
+    readonly property real _scale: fitBox.fitScale
+
+    readonly property real   _fontPixelSize:      ScreenTools.defaultFontPixelHeight
+    readonly property real   _smallFontPixelSize: ScreenTools.defaultFontPixelHeight * 0.82
+
     readonly property real   _margin: ScreenTools.defaultFontPixelWidth * 0.75
-    readonly property color  _accent: "#38BDF8"
+    readonly property color  _accent: FalconTheme.accent
     readonly property color  _accentBlue: "#1D4ED8"
-    readonly property color  _panel: "#0B1D33"
-    readonly property color  _mutedText: "#94A3B8"
+    readonly property color  _panel: FalconTheme.surface2
+    readonly property color  _mutedText: FalconTheme.textMuted
 
     // Static phase metadata (title + one-line description). Index == phase id.
     readonly property var _phases: [
@@ -85,11 +98,30 @@ Rectangle {
 
     implicitHeight: layout.implicitHeight + (_margin * 2)
 
-    ColumnLayout {
-        id: layout
+    Item {
+        id: fitBox
+
         anchors.fill: parent
         anchors.margins: root._margin
-        spacing: root._margin
+
+        // 1.0 while the content fits; below that, exactly the factor needed to
+        // bring the natural height inside the available height.
+        readonly property real fitScale:
+            Math.min(1, height / Math.max(1, layout.implicitHeight))
+
+        ColumnLayout {
+            id: layout
+            width: fitBox.width
+            spacing: root._margin
+
+            // Scaled about the top centre so the panel stays anchored under its
+            // header as it shrinks.
+            transform: Scale {
+                origin.x: fitBox.width / 2
+                origin.y: 0
+                xScale: fitBox.fitScale
+                yScale: fitBox.fitScale
+            }
 
         // --- header ---
         RowLayout {
@@ -104,14 +136,19 @@ Rectangle {
                     text: qsTr("MISSION PHASE CONTROL")
                     color: "white"
                     font.bold: true
+                    font.pixelSize: root._fontPixelSize
                     Layout.fillWidth: true
+                    elide: Text.ElideRight
                 }
             }
             Rectangle {   // link indicator dot
-                width: ScreenTools.defaultFontPixelWidth * 1.1
-                height: width
-                radius: width / 2
-                color: root._linkOk ? "#22C55E"
+                // Layout.* rather than width/height: a RowLayout drives its
+                // children from implicitWidth, so a plain width binding is
+                // discarded and the dot collapses.
+                Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 1.1
+                Layout.preferredHeight: Layout.preferredWidth
+                radius: Layout.preferredWidth / 2
+                color: root._linkOk ? FalconTheme.ok
                                     : root._connFailed ? qgcPal.colorRed
                                                        : qgcPal.colorYellow
             }
@@ -119,28 +156,23 @@ Rectangle {
                 text: root._linkOk ? qsTr("연결됨")
                                    : root._connFailed ? qsTr("연결 실패")
                                                       : qsTr("연결 시도 중…")
-                font.pointSize: ScreenTools.smallFontPointSize
+                font.pixelSize: root._smallFontPixelSize
                 color: root._linkOk ? "#86EFAC"
                                     : root._connFailed ? qgcPal.colorRed
                                                        : qgcPal.colorYellow
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(0.22, 0.74, 0.97, 0.28) }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: FalconTheme.hairline }
 
-        // --- phase rows (scrollable when they overflow the panel height) ---
-        ScrollView {
-            id: phaseScroll
+        // --- phase rows ---
+        // No ScrollView: the fit-to-box scale guarantees the list fits, and a
+        // fillHeight ScrollView would hide the natural height that scale needs.
+        ColumnLayout {
             Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
-            contentWidth: availableWidth
+            spacing: root._margin
 
-            ColumnLayout {
-                width: phaseScroll.availableWidth
-                spacing: root._margin
-
-        Repeater {
+            Repeater {
             model: root._phases
 
             delegate: Rectangle {
@@ -154,7 +186,7 @@ Rectangle {
 
                 Layout.fillWidth: true
                 Layout.preferredHeight: rowCol.implicitHeight + (root._margin * 1.5)
-                radius: 5
+                radius: FalconTheme.radiusPanel
                 color: running ? Qt.rgba(0.06, 0.18, 0.34, 0.96)
                                 : done ? Qt.rgba(0.04, 0.16, 0.12, 0.86)
                                        : root._panel
@@ -184,10 +216,10 @@ Rectangle {
 
                         // phase number / check badge
                         Rectangle {
-                            width: ScreenTools.defaultFontPixelHeight * 1.4
-                            height: width
-                            radius: width / 2
-                            color: phaseRow.done ? "#22C55E"
+                            Layout.preferredWidth: ScreenTools.defaultFontPixelHeight * 1.4
+                            Layout.preferredHeight: Layout.preferredWidth
+                            radius: Layout.preferredWidth / 2
+                            color: phaseRow.done ? FalconTheme.ok
                                                  : phaseRow.running ? root._accentBlue
                                                                     : "#111827"
                             border.width: 1
@@ -197,6 +229,7 @@ Rectangle {
                                 text: phaseRow.done ? "✓" : phaseRow.index.toString()
                                 color: (phaseRow.done || phaseRow.running) ? "white" : qgcPal.text
                                 font.bold: true
+                                font.pixelSize: root._smallFontPixelSize
                             }
                         }
 
@@ -207,6 +240,7 @@ Rectangle {
                                 text: qsTr("Phase %1 · %2").arg(phaseRow.index).arg(phaseRow.modelData.title)
                                 color: "white"
                                 font.bold: true
+                                font.pixelSize: root._fontPixelSize
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
                             }
@@ -215,7 +249,7 @@ Rectangle {
                                 // (WP2 이동 중, 고정익 천이 중, …); otherwise the static blurb.
                                 text: phaseRow.running && RosBridge.phaseMsg.length > 0
                                           ? RosBridge.phaseMsg : phaseRow.modelData.desc
-                                font.pointSize: ScreenTools.smallFontPointSize
+                                font.pixelSize: root._smallFontPixelSize
                                 color: phaseRow.running ? root._accent : root._mutedText
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
@@ -228,9 +262,9 @@ Rectangle {
                                                 : phaseRow.running ? qsTr("진행 중")
                                                                    : phaseRow.clickable ? qsTr("실행")
                                                                                         : qsTr("대기")
-                            font.pointSize: ScreenTools.smallFontPointSize
+                            font.pixelSize: root._smallFontPixelSize
                             font.bold: phaseRow.running
-                            color: phaseRow.done ? "#22C55E"
+                            color: phaseRow.done ? FalconTheme.ok
                                                  : phaseRow.running ? root._accent : root._mutedText
                         }
                     }
@@ -245,21 +279,28 @@ Rectangle {
                     }
                 }
             }
-        }
             }
         }
 
         // --- status footer ---
-        Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(0.22, 0.74, 0.97, 0.28) }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: FalconTheme.hairline }
 
-        RowLayout {
+        // Status line and buttons are stacked, never side by side. In a Row the
+        // wrapping status label (fillWidth) is the only shrinkable item, so once
+        // the buttons' implicit width exceeds the console pane the label
+        // collapses to a few pixels and renders one glyph per line. That is what
+        // broke the layout when a phase started running: the abort button grows
+        // ("임무 중단 · 제어권 회수") and the status text grows at the same moment.
+        ColumnLayout {
             Layout.fillWidth: true
-            spacing: root._margin
+            spacing: root._margin * 0.6
 
             QGCLabel {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                font.pointSize: ScreenTools.smallFontPointSize
+                maximumLineCount: 2
+                elide: Text.ElideRight
+                font.pixelSize: root._smallFontPixelSize
                 text: {
                     if (root._connFailed)
                         return qsTr("연결 실패 — command/orchestrator.py 가 실행 중인지 확인 후 재시도하세요")
@@ -276,19 +317,31 @@ Rectangle {
                 color: (root._connFailed || root._state === "failed") ? qgcPal.colorRed : qgcPal.text
             }
 
-            QGCButton {
-                // Take control back from the orchestrator: abort the running phase
-                // and hand the vehicle to the GCS (PX4 switches to HOLD / hover).
-                text: root._busy ? qsTr("임무 중단 · 제어권 회수") : qsTr("제어권 회수 (HOLD)")
-                visible: root._linkOk
-                onClicked: RosBridge.abortMission()
-            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: root._margin
 
-            QGCButton {
-                text: qsTr("재시도")
-                visible: root._connFailed
-                onClicked: root._retry()
+                QGCButton {
+                    // Take control back from the orchestrator: abort the running phase
+                    // and hand the vehicle to the GCS (PX4 switches to HOLD / hover).
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: root._busy ? qsTr("임무 중단") : qsTr("제어권 회수 (HOLD)")
+                    font.pixelSize: root._smallFontPixelSize
+                    visible: root._linkOk
+                    onClicked: RosBridge.abortMission()
+                }
+
+                QGCButton {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: qsTr("재시도")
+                    font.pixelSize: root._smallFontPixelSize
+                    visible: root._connFailed
+                    onClicked: root._retry()
+                }
             }
         }
+    }
     }
 }

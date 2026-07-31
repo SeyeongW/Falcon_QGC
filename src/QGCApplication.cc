@@ -246,6 +246,18 @@ void QGCApplication::init()
         qCWarning(QGCApplicationLog) << "Could not load /fonts/opensans-demibold font";
     }
 
+    // IBM Plex backs the Carbon-derived custom theme: Plex Sans for UI text and
+    // Plex Mono for telemetry readouts, whose fixed digit width is what makes a
+    // changing value read as an instrument. Latin only -- Hangul falls back to
+    // the Nanum/system face, which already ships. Licensed OFL-1.1.
+    for (const char *plexFont : {":/fonts/IBMPlexSans-Regular",
+                                 ":/fonts/IBMPlexSans-SemiBold",
+                                 ":/fonts/IBMPlexMono-Regular"}) {
+        if (QFontDatabase::addApplicationFont(QString::fromLatin1(plexFont)) < 0) {
+            qCWarning(QGCApplicationLog) << "Could not load" << plexFont << "font";
+        }
+    }
+
     if (_simpleBootTest) {
         // Since GStream builds are so problematic we initialize video during the simple boot test
         // to make sure it works and verfies plugin availability.

@@ -6,6 +6,8 @@
 #include <QtCore/QJsonObject>
 #include <QtCore/QLoggingCategory>
 
+#include <utility>
+
 Q_LOGGING_CATEGORY(RosBridgeLog, "Custom.RosBridge")
 
 namespace {
@@ -117,7 +119,11 @@ void RosBridge::_updateFps()
 
 void RosBridge::refreshTopics()
 {
-    if (!_node) {
+    // rclcpp::ok() must be checked as well as _node: once the context is
+    // invalidated (rclcpp installs its own SIGINT/SIGTERM handler), the graph
+    // calls below throw rclcpp::RCLError, which would escape the timer slot and
+    // abort the process on shutdown.
+    if (!_node || !rclcpp::ok()) {
         return;
     }
 
@@ -137,21 +143,78 @@ void RosBridge::refreshTopics()
         _imageTopics = found;
         emit imageTopicsChanged();
     }
+
+    _autoSelectImageTopic();
+}
+
+void RosBridge::_autoSelectImageTopic()
+{
+    // Once the operator picks a topic (or deliberately clears it) the choice is
+    // theirs and discovery stops meddling.
+    if (_userPickedTopic || _imageTopics.isEmpty()) {
+        return;
+    }
+
+    // The compressed republish is the feed that survives a network hop (a raw
+    // 1280x720 rgb8 frame fragments into thousands of UDP packets and is lost),
+    // so it wins over the raw camera topic when both are on the graph.
+    static const QString kPreferred = QStringLiteral("/fgc/cam");
+    QString best;
+    if (_imageTopics.contains(kPreferred)) {
+        best = kPreferred;
+    } else {
+        for (const QString &topic : std::as_const(_imageTopics)) {
+            if (topic.contains(QStringLiteral("compressed"))) {
+                best = topic;
+                break;
+            }
+        }
+        if (best.isEmpty()) {
+            best = _imageTopics.first();
+        }
+    }
+
+    // Upgrade, not just fill: discovery is incremental, so an early scan often
+    // sees only the raw Gazebo camera while the compressed republish is still
+    // starting. Keep moving to the best feed until the operator chooses.
+    if (best == _imageTopic) {
+        return;
+    }
+
+    qCDebug(RosBridgeLog) << "auto-selecting image topic" << best
+                          << "(was" << _imageTopic << ")";
+    _setImageTopic(best, false);
 }
 
 void RosBridge::setImageTopic(const QString &topic)
 {
-    if (topic == _imageTopic) {
+    _setImageTopic(topic, true);
+}
+
+void RosBridge::_setImageTopic(const QString &topic, bool userPicked)
+{
+    if (userPicked) {
+        _userPickedTopic = true;
+    }
+
+    // Re-selecting the current topic is a no-op only while a subscription is
+    // actually live; otherwise it is the operator's way of retrying after the
+    // publisher restarted, and must rebuild the subscription.
+    const bool subscribed = _imageSub || _compressedSub;
+    if (topic == _imageTopic && subscribed) {
         return;
     }
-    _imageTopic = topic;
-    emit imageTopicChanged();
+
+    if (topic != _imageTopic) {
+        _imageTopic = topic;
+        emit imageTopicChanged();
+    }
 
     _imageSub.reset();
     _compressedSub.reset();
     _frameCounter = 0;
 
-    if (!_node || topic.isEmpty()) {
+    if (!_node || !rclcpp::ok() || topic.isEmpty()) {
         return;
     }
 

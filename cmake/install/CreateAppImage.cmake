@@ -164,8 +164,10 @@ message(STATUS "QGC: Building AppImage package...")
 set(ENV{ARCH} ${CMAKE_SYSTEM_PROCESSOR})
 set(ENV{VERSION} ${CMAKE_PROJECT_VERSION})
 
+# Skip AppStream validation: the upstream appdata.xml references a screenshot
+# URL that 404s, which appimagetool otherwise treats as a fatal error.
 execute_process(
-    COMMAND "${APPIMAGETOOL_PATH}" "${APPDIR_PATH}" "${APPIMAGE_PATH}"
+    COMMAND "${APPIMAGETOOL_PATH}" --no-appstream "${APPDIR_PATH}" "${APPIMAGE_PATH}"
     COMMAND_ECHO STDOUT
     COMMAND_ERROR_IS_FATAL ANY
 )
