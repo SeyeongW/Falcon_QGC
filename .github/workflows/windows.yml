@@ -77,7 +77,7 @@ jobs:
     steps:
       - name: Enable RunsOn magic cache
         if: github.repository_owner == 'mavlink' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && matrix.variant != 'arm64'
-        uses: runs-on/action@v2
+        uses: runs-on/action@v2.2.0
         with:
           metrics: cpu,network,memory,disk,io
           show_costs: summary
@@ -88,7 +88,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
 

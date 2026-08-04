@@ -37,7 +37,7 @@ jobs:
     steps:
       - name: Enable RunsOn magic cache
         if: github.repository_owner == 'mavlink'
-        uses: runs-on/action@v2
+        uses: runs-on/action@v2.2.0
         with:
           metrics: cpu,network,memory,disk,io
           show_costs: summary
@@ -48,7 +48,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
