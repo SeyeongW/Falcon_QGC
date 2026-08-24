@@ -169,6 +169,34 @@ if(QGC_ENABLE_ROS)
     find_package(std_msgs REQUIRED)
     find_package(sensor_msgs REQUIRED)
     find_package(mavros_msgs REQUIRED)
+    find_package(rmw_fastrtps_cpp REQUIRED)
+
+    # ROS middleware and message type-support libraries are loaded with dlopen,
+    # so linuxdeploy cannot discover them from the FGC executable dependency
+    # graph. Install the runtime entry points explicitly; linuxdeploy will then
+    # collect their transitive Fast DDS/message dependencies.
+    get_filename_component(QGC_ROS_PREFIX "${rmw_fastrtps_cpp_DIR}/../../.." ABSOLUTE)
+    file(GLOB QGC_ROS_TYPESUPPORT_LIBRARIES CONFIGURE_DEPENDS
+        "${QGC_ROS_PREFIX}/lib/lib*__rosidl_typesupport_fastrtps_*.so"
+        "${QGC_ROS_PREFIX}/lib/lib*__rosidl_typesupport_introspection_*.so"
+    )
+    if(NOT QGC_ROS_TYPESUPPORT_LIBRARIES)
+        message(FATAL_ERROR "QGC: No ROS2 Fast DDS type-support libraries found in ${QGC_ROS_PREFIX}/lib")
+    endif()
+    set(QGC_ROS_RUNTIME_LIBRARIES
+        "${QGC_ROS_PREFIX}/lib/librmw_fastrtps_cpp.so"
+        ${QGC_ROS_TYPESUPPORT_LIBRARIES}
+    )
+    foreach(QGC_ROS_RUNTIME_LIBRARY IN LISTS QGC_ROS_RUNTIME_LIBRARIES)
+        if(NOT EXISTS "${QGC_ROS_RUNTIME_LIBRARY}")
+            message(FATAL_ERROR "QGC: Required ROS2 runtime library not found: ${QGC_ROS_RUNTIME_LIBRARY}")
+        endif()
+    endforeach()
+    install(FILES ${QGC_ROS_RUNTIME_LIBRARIES} DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+    install(
+        DIRECTORY "${QGC_ROS_PREFIX}/share/ament_index/"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/ament_index"
+    )
 
     add_library(CustomRosBridge STATIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Ros/RosBridge.cc
