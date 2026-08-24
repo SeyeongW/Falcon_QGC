@@ -4,7 +4,6 @@ from mavros_msgs.msg import Waypoint
 
 
 MAV_CMD_NAV_WAYPOINT = 16
-MAV_CMD_NAV_VTOL_TAKEOFF = 84
 MAV_CMD_NAV_VTOL_LAND = 85
 MAV_CMD_DO_VTOL_TRANSITION = 3000
 
@@ -15,17 +14,35 @@ MAV_FRAME_GLOBAL_REL_ALT = 3
 MAV_FRAME_MISSION = 2
 
 
-def offset_latlon(lat_deg, lon_deg, north_m, east_m):
-    earth_radius_m = 6378137.0
+# ============================================================
+# 대회 GPS 좌표 직접 입력부
+# ============================================================
+# 형식:
+#   "wp1": (lat, lon, alt)
+#
+# alt는 상대고도[m]로 사용.
+# 실제 대회장에서는 반드시 실제 GPS 좌표로 교체.
+# ============================================================
 
-    d_lat = north_m / earth_radius_m
-    d_lon = east_m / (earth_radius_m * math.cos(math.radians(lat_deg)))
+MISSION_GPS = {
+    # QGC 2번 → WP1
+    "wp1": (47.3983727, 8.5461613, 30),
 
-    new_lat = lat_deg + math.degrees(d_lat)
-    new_lon = lon_deg + math.degrees(d_lon)
+    # QGC 3번 → WP2
+    "wp2": (47.3993855, 8.5470882, 30),
 
-    return new_lat, new_lon
+    # QGC 4번 → WP3
+    "wp3": (47.4004467, 8.5493682, 30),
 
+    # QGC 5번 → WP4
+    "wp4": (47.4004124, 8.5438027, 30),
+
+    # QGC 6번 → WP5
+    "wp5": (47.3992492, 8.5461776, 30),
+
+    # QGC 7번 → REP
+    "rep": (47.3983302, 8.5482113, 10),
+}
 
 def make_wp(
     command,
@@ -59,165 +76,182 @@ def make_wp(
     return wp
 
 
-def build_pentagon_offsets(center_north_m, center_east_m, side_length_m=200.0):
-    """
-    정오각형 waypoint offset 생성.
+def validate_gps_point(name, point):
+    if point is None:
+        raise ValueError(f"{name} is None")
 
-    side_length_m:
-        오각형 한 변 길이.
-        여기서는 약 200m 간격의 5각형 경로를 만든다.
+    if len(point) != 3:
+        raise ValueError(f"{name} must be (lat, lon, alt)")
 
-    반환:
-        [(north_m, east_m), ...] 5개
-    """
+    lat, lon, alt = point
 
-    # 정오각형의 외접반지름 R = s / (2 sin(pi / 5))
-    radius_m = side_length_m / (2.0 * math.sin(math.pi / 5.0))
+    if not (-90.0 <= float(lat) <= 90.0):
+        raise ValueError(f"{name} latitude out of range: {lat}")
 
-    points = []
+    if not (-180.0 <= float(lon) <= 180.0):
+        raise ValueError(f"{name} longitude out of range: {lon}")
 
-    # 첫 점을 북쪽 위쪽에 두고 시계방향으로 회전
-    # 좌표계: north/east offset
-    start_angle_rad = math.radians(90.0)
+    if float(alt) < 0.0:
+        raise ValueError(f"{name} altitude must be >= 0: {alt}")
 
-    for i in range(5):
-        angle = start_angle_rad - i * 2.0 * math.pi / 5.0
+    return float(lat), float(lon), float(alt)
 
-        north = center_north_m + radius_m * math.sin(angle)
-        east = center_east_m + radius_m * math.cos(angle)
 
-        points.append((north, east))
+def get_mission_gps_points(mission_gps=None, override_alt_m=None):
+    if mission_gps is None:
+        mission_gps = MISSION_GPS
+
+    required_keys = ["wp1", "wp2", "wp3", "wp4", "wp5", "rep"]
+
+    points = {}
+
+    for key in required_keys:
+        if key not in mission_gps:
+            raise KeyError(f"Missing mission GPS key: {key}")
+
+        lat, lon, alt = validate_gps_point(key, mission_gps[key])
+
+        if override_alt_m is not None:
+            alt = float(override_alt_m)
+
+        points[key] = (lat, lon, alt)
 
     return points
 
 
-def build_phase1_vtol_transit_mission(
-    home_lat,
-    home_lon,
+def build_phase1_wp2_to_rep_mission(
+    home_lat=None,
+    home_lon=None,
     mission_alt_m=30.0,
-    takeoff_north_m=30.0,
-    pentagon_center_north_m=350.0,
-    pentagon_center_east_m=0.0,
-    pentagon_side_m=200.0,
+    mission_gps=None,
 ):
     """
-    Phase 1 AUTO.MISSION 생성.
+    Mission B:
+        seq0 : WP2
+        seq1 : WP3
+        seq2 : WP4
+        seq3 : WP5
+        seq4 : DO_VTOL_TRANSITION to Multicopter
+        seq5 : REP
+        seq6 : VTOL_LAND dummy
 
-    Mission:
-    0. VTOL_TAKEOFF
-    1. DO_VTOL_TRANSITION to Fixed-wing
-    2. Pentagon waypoint 1
-    3. Pentagon waypoint 2
-    4. Pentagon waypoint 3
-    5. Pentagon waypoint 4
-    6. Pentagon waypoint 5
-    7. DO_VTOL_TRANSITION to Multicopter
-    8. VTOL_LAND
-
-    실제 Phase 2로 넘길 때는 VTOL_LAND까지 가지 않는다.
-    phase1.py에서 MC 역천이를 확인한 뒤 AUTO.LOITER로 전환한다.
+    주의:
+        FW 전환은 이 mission 안에서 하지 않는다.
+        phase1.py에서 Enter 후 CommandLong으로 직접 FW 전환한다.
     """
 
-    takeoff_lat, takeoff_lon = offset_latlon(
-        home_lat,
-        home_lon,
-        north_m=takeoff_north_m,
-        east_m=0.0,
+    points = get_mission_gps_points(
+        mission_gps=mission_gps,
+        override_alt_m=mission_alt_m,
     )
 
-    pentagon_offsets = build_pentagon_offsets(
-        center_north_m=pentagon_center_north_m,
-        center_east_m=pentagon_center_east_m,
-        side_length_m=pentagon_side_m,
-    )
-
-    pentagon_latlon = [
-        offset_latlon(
-            home_lat,
-            home_lon,
-            north_m=north_m,
-            east_m=east_m,
-        )
-        for north_m, east_m in pentagon_offsets
-    ]
-
-    last_lat, last_lon = pentagon_latlon[-1]
+    wp2_lat, wp2_lon, wp2_alt = points["wp2"]
+    wp3_lat, wp3_lon, wp3_alt = points["wp3"]
+    wp4_lat, wp4_lon, wp4_alt = points["wp4"]
+    wp5_lat, wp5_lon, wp5_alt = points["wp5"]
+    rep_lat, rep_lon, rep_alt = points["rep"]
 
     waypoints = []
 
-    # 0. VTOL 이륙
-    waypoints.append(
-        make_wp(
-            command=MAV_CMD_NAV_VTOL_TAKEOFF,
-            lat=takeoff_lat,
-            lon=takeoff_lon,
-            alt=mission_alt_m,
-            frame=MAV_FRAME_GLOBAL_REL_ALT,
-            is_current=True,
-        )
-    )
+    fw_acceptance_radius_m = 35.0
 
-    # 1. 고정익 천이
-    # DO_VTOL_TRANSITION is a MISSION-frame DO command: x/y/z (param5/6/7) must
-    # be 0 (PX4 rejects "param5 invalid" if a lat/lon is put here).
-    waypoints.append(
-        make_wp(
-            command=MAV_CMD_DO_VTOL_TRANSITION,
-            lat=0.0,
-            lon=0.0,
-            alt=0.0,
-            frame=MAV_FRAME_MISSION,
-            param1=MAV_VTOL_STATE_FW,
-        )
-    )
-
-    # 2~6. 고정익 5각형 waypoint 5개
-    for lat, lon in pentagon_latlon:
+    # seq0~seq3. WP2 → WP3 → WP4 → WP5 고정익 비행
+    for idx, (lat, lon, alt) in enumerate(
+        [
+            (wp2_lat, wp2_lon, wp2_alt),
+            (wp3_lat, wp3_lon, wp3_alt),
+            (wp4_lat, wp4_lon, wp4_alt),
+            (wp5_lat, wp5_lon, wp5_alt),
+        ]
+    ):
         waypoints.append(
             make_wp(
                 command=MAV_CMD_NAV_WAYPOINT,
                 lat=lat,
                 lon=lon,
-                alt=mission_alt_m,
+                alt=alt,
                 frame=MAV_FRAME_GLOBAL_REL_ALT,
-                param2=35.0,  # acceptance radius
+                is_current=(idx == 0),
+                autocontinue=True,
+                param2=fw_acceptance_radius_m,
             )
         )
 
-    # 7. 마지막 오각형 waypoint 근처에서 멀티콥터 역천이
-    # MISSION-frame DO command -> x/y/z must be 0 (see note above).
+    # seq4. WP5 이후 고정익 → 회전익 천이
     waypoints.append(
         make_wp(
             command=MAV_CMD_DO_VTOL_TRANSITION,
-            lat=0.0,
-            lon=0.0,
-            alt=0.0,
+            lat=wp5_lat,
+            lon=wp5_lon,
+            alt=wp5_alt,
             frame=MAV_FRAME_MISSION,
+            autocontinue=True,
             param1=MAV_VTOL_STATE_MC,
         )
     )
 
-    # 8. mission validity용 VTOL_LAND
-    # 실제로는 phase1.py가 역천이 확인 후 AUTO.LOITER로 전환하므로 여기까지 가지 않는다.
+    # seq5. REP 진입 및 호버링
+    waypoints.append(
+        make_wp(
+            command=MAV_CMD_NAV_WAYPOINT,
+            lat=rep_lat,
+            lon=rep_lon,
+            alt=rep_alt,
+            frame=MAV_FRAME_GLOBAL_REL_ALT,
+            autocontinue=True,
+            param1=5.0,
+            param2=8.0,
+        )
+    )
+
+    # seq6. Mission validity용 dummy LAND
     waypoints.append(
         make_wp(
             command=MAV_CMD_NAV_VTOL_LAND,
-            lat=last_lat,
-            lon=last_lon,
+            lat=rep_lat,
+            lon=rep_lon,
             alt=0.0,
             frame=MAV_FRAME_GLOBAL_REL_ALT,
+            autocontinue=True,
         )
     )
 
     mission_info = {
-        "start": (home_lat, home_lon),
-        "takeoff": (takeoff_lat, takeoff_lon),
-        "fw_wp": pentagon_latlon[0],
-        "fw_wps": pentagon_latlon,
-        "mc_wp": (last_lat, last_lon),
+        "name": "phase1_wp2_to_rep",
+        "start": (home_lat, home_lon) if home_lat is not None and home_lon is not None else None,
+
+        "wp2": (wp2_lat, wp2_lon),
+        "wp3": (wp3_lat, wp3_lon),
+        "wp4": (wp4_lat, wp4_lon),
+        "wp5": (wp5_lat, wp5_lon),
+        "rep": (rep_lat, rep_lon),
+
+        "wp2_alt_m": wp2_alt,
+        "wp3_alt_m": wp3_alt,
+        "wp4_alt_m": wp4_alt,
+        "wp5_alt_m": wp5_alt,
+        "rep_alt_m": rep_alt,
+
+        "fw_wp": (wp2_lat, wp2_lon),
+        "fw_wps": [
+            (wp2_lat, wp2_lon),
+            (wp3_lat, wp3_lon),
+            (wp4_lat, wp4_lon),
+            (wp5_lat, wp5_lon),
+        ],
+        "mc_wp": (rep_lat, rep_lon),
+
         "alt_m": mission_alt_m,
-        "pentagon_side_m": pentagon_side_m,
         "count": len(waypoints),
+
+        # Mission B 기준 seq index
+        "seq_wp2": 0,
+        "seq_wp3": 1,
+        "seq_wp4": 2,
+        "seq_wp5": 3,
+        "seq_transition_mc": 4,
+        "seq_rep": 5,
+        "seq_land_dummy": 6,
     }
 
     return waypoints, mission_info

@@ -49,8 +49,16 @@ class RosBridge : public QObject
     Q_PROPERTY(int phase READ phase NOTIFY phaseStatusChanged)
     Q_PROPERTY(QString phaseState READ phaseState NOTIFY phaseStatusChanged)
     Q_PROPERTY(QString phaseMsg READ phaseMsg NOTIFY phaseStatusChanged)
+    Q_PROPERTY(QString phasePrompt READ phasePrompt NOTIFY phaseStatusChanged)
     Q_PROPERTY(double phaseProgress READ phaseProgress NOTIFY phaseStatusChanged)
     Q_PROPERTY(QVariantList phaseDone READ phaseDone NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool cameraAvailable READ cameraAvailable NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool cameraRunning READ cameraRunning NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool gripperOpenAvailable READ gripperOpenAvailable NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool gripperCloseAvailable READ gripperCloseAvailable NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool gripperBusy READ gripperBusy NOTIFY phaseStatusChanged)
+    Q_PROPERTY(QString gripperState READ gripperState NOTIFY phaseStatusChanged)
+    Q_PROPERTY(QString actionMsg READ actionMsg NOTIFY phaseStatusChanged)
 
 public:
     explicit RosBridge(QObject *parent = nullptr);
@@ -71,8 +79,16 @@ public:
     int phase() const { return _phase; }
     QString phaseState() const { return _phaseState; }
     QString phaseMsg() const { return _phaseMsg; }
+    QString phasePrompt() const { return _phasePrompt; }
     double phaseProgress() const { return _phaseProgress; }
     QVariantList phaseDone() const { return _phaseDone; }
+    bool cameraAvailable() const { return _cameraAvailable; }
+    bool cameraRunning() const { return _cameraRunning; }
+    bool gripperOpenAvailable() const { return _gripperOpenAvailable; }
+    bool gripperCloseAvailable() const { return _gripperCloseAvailable; }
+    bool gripperBusy() const { return _gripperBusy; }
+    QString gripperState() const { return _gripperState; }
+    QString actionMsg() const { return _actionMsg; }
 
     /// Convert a raw sensor_msgs/Image to QImage. Supports rgb8/bgr8/rgba8/
     /// bgra8/mono8/mono16; returns a null QImage for unsupported encodings.
@@ -88,6 +104,12 @@ public slots:
     void setActuatorTopic(const QString &topic);
     /// Ask the orchestrator to run mission phase `n` (publishes command/run_phase).
     Q_INVOKABLE void runPhase(int n);
+    /// Reply to the active phase prompt ("ok" or "again").
+    Q_INVOKABLE void respondPhase(const QString &response);
+    /// Start or stop the onboard camera process.
+    Q_INVOKABLE void setCameraEnabled(bool enabled);
+    /// Run one onboard gripper action ("open" or "close").
+    Q_INVOKABLE void runGripper(const QString &action);
     /// Take control back from the orchestrator: publishes command/abort so it
     /// terminates the running phase script and hands the vehicle to the GCS
     /// (the orchestrator switches PX4 to HOLD / hover-in-place).
@@ -132,6 +154,8 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _phaseStatusSub;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr _runPhasePub;
     rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr _abortPub;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr _phaseResponsePub;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr _actionPub;
 
     QTimer _spinTimer;                          ///< drives rclcpp::spin_some
     QTimer _fpsTimer;                            ///< 1 Hz frame-rate accounting
@@ -153,7 +177,16 @@ private:
     int _phase = -1;
     QString _phaseState = QStringLiteral("idle");
     QString _phaseMsg;
+    QString _phasePrompt;
     double _phaseProgress = -1.0;
     QVariantList _phaseDone;            ///< completed phase ids
     qint64 _lastPhaseMs = 0;            ///< ms of last command/status msg
+
+    bool _cameraAvailable = false;
+    bool _cameraRunning = false;
+    bool _gripperOpenAvailable = false;
+    bool _gripperCloseAvailable = false;
+    bool _gripperBusy = false;
+    QString _gripperState = QStringLiteral("unknown");
+    QString _actionMsg;
 };

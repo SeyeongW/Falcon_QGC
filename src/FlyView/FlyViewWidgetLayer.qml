@@ -22,6 +22,7 @@ Item {
     property var    parentToolInsets
     property var    totalToolInsets:        _totalToolInsets
     property var    mapControl
+    property Item   telemetryContainer
 
     property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
     property var    _planMasterController:  globals.planMasterControllerFlyView
@@ -108,73 +109,73 @@ Item {
         property real rightEdgeCenterInset: rightEdgeTopInset
     }
 
-    MovablePanel {
+    Item {
         id:                     telemetryPanel
-        x:                      0
-        y:                      0
-        width:                  _defaultWidth
-        height:                 _defaultHeight
-        minWidth:               _defaultWidth * 0.75
-        minHeight:              _defaultHeight
-        visible:                _activeVehicle
+        parent:                 _root.telemetryContainer ? _root.telemetryContainer : _root
+        anchors.fill:           parent
+        visible:                _root.visible && _activeVehicle
         z:                      QGroundControl.zOrderWidgets
 
-        readonly property real _defaultWidth:  ScreenTools.defaultFontPixelWidth * 19
-        readonly property real _defaultHeight: ScreenTools.defaultFontPixelHeight * 10.5
-        readonly property real _contentScale:  Math.max(
-                                                   0.75,
-                                                   Math.min(
-                                                       2.5,
-                                                       Math.min(width / _defaultWidth,
-                                                                height / _defaultHeight)
-                                                   )
-                                               )
+        readonly property real _contentScale: Math.max(
+                                                  0.9,
+                                                  Math.min(
+                                                      1.5,
+                                                      height / (ScreenTools.defaultFontPixelHeight * 6)
+                                                  )
+                                              )
 
-        Rectangle {
-            anchors.fill: parent
-            color:        Qt.rgba(0.03, 0.08, 0.14, 0.90)
-            radius:       ScreenTools.defaultFontPixelWidth * 0.6 * telemetryPanel._contentScale
-            border.color: Qt.rgba(0.34, 0.59, 0.71, 0.70)
-            border.width: 1
-            clip:         true
+        GridLayout {
+            anchors.fill:        parent
+            anchors.leftMargin:  _toolsMargin
+            anchors.rightMargin: _toolsMargin
+            anchors.topMargin:   ScreenTools.defaultFontPixelHeight * 0.35
+            anchors.bottomMargin: anchors.topMargin
+            columns:             5
+            columnSpacing:       ScreenTools.defaultFontPixelWidth * 0.8
+            rowSpacing:          ScreenTools.defaultFontPixelHeight * 0.2
 
-            ColumnLayout {
-                anchors.fill:    parent
-                anchors.margins: _toolsMargin * telemetryPanel._contentScale
-                spacing:         ScreenTools.defaultFontPixelHeight * 0.12 * telemetryPanel._contentScale
+            Repeater {
+                model: [
+                    { label: qsTr("CURRENT"), value: _telemetryText(_primaryBattery ? _primaryBattery.current : null, 1) },
+                    { label: qsTr("ROLL"),    value: _telemetryText(_activeVehicle ? _activeVehicle.roll : null, 1) },
+                    { label: qsTr("PITCH"),   value: _telemetryText(_activeVehicle ? _activeVehicle.pitch : null, 1) },
+                    { label: qsTr("DESCENT"), value: _descentRateText() },
+                    { label: qsTr("ALT"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.altitudeRelative : null, true) },
+                    { label: qsTr("CLIMB"),   value: _factTelemetryText(_activeVehicle ? _activeVehicle.climbRate : null, true) },
+                    { label: qsTr("G/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.groundSpeed : null, true) },
+                    { label: qsTr("A/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.airSpeed : null, true) },
+                    { label: qsTr("THR"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.throttlePct : null, true) },
+                    { label: qsTr("TIME"),    value: _factTelemetryText(_activeVehicle ? _activeVehicle.flightTime : null, false) }
+                ]
 
-                Repeater {
-                    model: [
-                        { label: qsTr("CURRENT"), value: _telemetryText(_primaryBattery ? _primaryBattery.current : null, 1) },
-                        { label: qsTr("ROLL"),    value: _telemetryText(_activeVehicle ? _activeVehicle.roll : null, 1) },
-                        { label: qsTr("PITCH"),   value: _telemetryText(_activeVehicle ? _activeVehicle.pitch : null, 1) },
-                        { label: qsTr("DESCENT"), value: _descentRateText() },
-                        { label: qsTr("ALT"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.altitudeRelative : null, true) },
-                        { label: qsTr("CLIMB"),   value: _factTelemetryText(_activeVehicle ? _activeVehicle.climbRate : null, true) },
-                        { label: qsTr("G/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.groundSpeed : null, true) },
-                        { label: qsTr("A/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.airSpeed : null, true) },
-                        { label: qsTr("THR"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.throttlePct : null, true) },
-                        { label: qsTr("TIME"),    value: _factTelemetryText(_activeVehicle ? _activeVehicle.flightTime : null, false) }
-                    ]
+                ColumnLayout {
+                    required property var modelData
 
-                    RowLayout {
-                        required property var modelData
+                    Layout.fillWidth:  true
+                    Layout.fillHeight: true
+                    spacing:           0
 
-                        Layout.fillWidth: true
-                        spacing:          ScreenTools.defaultFontPixelWidth * 0.5 * telemetryPanel._contentScale
+                    QGCLabel {
+                        Layout.fillWidth:      true
+                        text:                  modelData.label
+                        color:                 "#5796B4"
+                        horizontalAlignment:   Text.AlignHCenter
+                        font.bold:             true
+                        font.pixelSize:        ScreenTools.defaultFontPixelHeight
+                                               * 0.70
+                                               * telemetryPanel._contentScale
+                    }
 
-                        QGCLabel {
-                            Layout.fillWidth: true
-                            text:             modelData.label
-                            color:            "#5796B4"
-                            font.pixelSize:   ScreenTools.defaultFontPixelHeight * 0.62 * telemetryPanel._contentScale
-                        }
-
-                        QGCLabel {
-                            text:             modelData.value
-                            color:            "white"
-                            font.pixelSize:   ScreenTools.defaultFontPixelHeight * 0.72 * telemetryPanel._contentScale
-                        }
+                    QGCLabel {
+                        Layout.fillWidth:      true
+                        text:                  modelData.value
+                        color:                 "white"
+                        elide:                 Text.ElideRight
+                        horizontalAlignment:   Text.AlignHCenter
+                        font.bold:             true
+                        font.pixelSize:        ScreenTools.defaultFontPixelHeight
+                                               * 0.90
+                                               * telemetryPanel._contentScale
                     }
                 }
             }

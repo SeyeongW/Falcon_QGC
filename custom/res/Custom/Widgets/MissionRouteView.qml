@@ -31,7 +31,7 @@ Item {
     property real   altitudeDrop:           Number.NaN
     property real   maximumAccelerationG:   Number.NaN
     property string missionTimeText:        "--"
-    property int    estimatedScore:         -1
+    property int    estimatedScore:         0
 
     readonly property real routeAreaRatio: 0.70
     readonly property real routeAreaWidth: routeArea.width
@@ -236,61 +236,8 @@ Item {
                 : startPoint
     }
 
-    function _infoLabel(rowIndex) {
-        const labels = [
-            qsTr("ROUTE"),
-            qsTr("H ERROR"),
-            qsTr("V ERROR"),
-            qsTr("ALT DROP"),
-            qsTr("MAX ACC"),
-            qsTr("TIME"),
-            qsTr("SCORE EST.")
-        ]
-        return labels[rowIndex]
-    }
-
     function _validText(value, fallback) {
         return value && value.length > 0 ? value : fallback
-    }
-
-    function _infoValue(rowIndex) {
-        switch (rowIndex) {
-        case 0:
-            return _validText(routeText, "-- >>> --")
-        case 1:
-            return isFinite(horizontalError) ? Number(horizontalError).toFixed(1) : "--"
-        case 2:
-            return isFinite(verticalError) ? Number(verticalError).toFixed(1) : "--"
-        case 3:
-            return isFinite(altitudeDrop) ? Number(altitudeDrop).toFixed(1) : "--"
-        case 4:
-            return isFinite(maximumAccelerationG) ? Number(maximumAccelerationG).toFixed(2) : "--"
-        case 5:
-            return _validText(missionTimeText, "--")
-        case 6:
-            return estimatedScore >= 0 ? String(estimatedScore) : "--"
-        default:
-            return "--"
-        }
-    }
-
-    function _infoUnit(rowIndex) {
-        switch (rowIndex) {
-        case 1:
-        case 2:
-        case 3:
-            return qsTr("m")
-        case 4:
-            return qsTr("G")
-        default:
-            return ""
-        }
-    }
-
-    function _infoDisplayValue(rowIndex) {
-        const value = _infoValue(rowIndex)
-        const unit = _infoUnit(rowIndex)
-        return value === "--" || unit.length === 0 ? value : value + " " + unit
     }
 
     function _physicalWaypointKey(coordinate) {
@@ -398,6 +345,7 @@ Item {
             visitNumber: occurrence.visitNumber,
             totalVisitCount: occurrence.totalVisitCount,
             state: occurrence.state,
+            score: occurrence.score,
             minimumHorizontalError: occurrence.minimumHorizontalError,
             minimumVerticalError: occurrence.minimumVerticalError,
             passedTimestamp: occurrence.passedTimestamp,
@@ -516,6 +464,7 @@ Item {
                             : 0,
                     totalVisitCount: 0,
                     state: waypointPending,
+                    score: -1,
                     minimumHorizontalError: Number.NaN,
                     minimumVerticalError: Number.NaN,
                     passedTimestamp: Number.NaN,
@@ -602,6 +551,7 @@ Item {
         for (let index = 0; index < missionOccurrences.length; index++) {
             const occurrence = _copyOccurrence(missionOccurrences[index])
             occurrence.state = waypointPending
+            occurrence.score = -1
             occurrence.minimumHorizontalError = Number.NaN
             occurrence.minimumVerticalError = Number.NaN
             occurrence.passedTimestamp = Number.NaN
@@ -610,6 +560,33 @@ Item {
         missionOccurrences = occurrences
         _lastMissionSequence = -1
         _publishMissionProgress()
+    }
+
+    function _scoreForErrors(horizontalMeters, verticalMeters) {
+        const horizontal = Number(horizontalMeters)
+        const vertical = Number(verticalMeters)
+        if (!isFinite(horizontal) || !isFinite(vertical)) {
+            return 0
+        }
+        if (horizontal < 2 && vertical < 4) {
+            return 20
+        }
+        if (horizontal < 4 && vertical < 7) {
+            return 12
+        }
+        if (horizontal < 6 && vertical < 10) {
+            return 6
+        }
+        return 0
+    }
+
+    function _finalizeOccurrenceScore(occurrence, wasActive) {
+        if (!occurrence.isWaypoint || occurrence.score >= 0) {
+            return
+        }
+        occurrence.score = wasActive
+                ? _scoreForErrors(horizontalError, verticalError)
+                : 0
     }
 
     function _applyMissionSequence(sequenceNumber) {
@@ -639,10 +616,14 @@ Item {
         for (let index = 0; index < missionOccurrences.length; index++) {
             const occurrence = _copyOccurrence(missionOccurrences[index])
             const wasPassed = occurrence.state === waypointPassed
+            const wasActive = occurrence.state === waypointActive
             if (activeTargetIndex < 0 || index < activeTargetIndex) {
                 occurrence.state = waypointPassed
                 if (!wasPassed && !isFinite(occurrence.passedTimestamp)) {
                     occurrence.passedTimestamp = now
+                }
+                if (!wasPassed) {
+                    _finalizeOccurrenceScore(occurrence, wasActive)
                 }
             } else if (index === activeTargetIndex) {
                 occurrence.state = waypointActive
@@ -663,8 +644,11 @@ Item {
             return
         }
 
+        updateTargetMetrics()
         const occurrences = missionOccurrences.slice()
         const occurrence = _copyOccurrence(occurrences[activeOccurrenceIndex])
+        const wasActive = occurrence.state === waypointActive
+        _finalizeOccurrenceScore(occurrence, wasActive)
         occurrence.state = waypointPassed
         if (!isFinite(occurrence.passedTimestamp)) {
             occurrence.passedTimestamp = Date.now()
@@ -686,11 +670,13 @@ Item {
 
         const groups = []
         const states = []
+        let totalScore = 0
         for (let groupIndex = 0;
              groupIndex < physicalWaypointGroups.length;
              groupIndex++) {
             const sourceGroup = physicalWaypointGroups[groupIndex]
             let completedVisitCount = 0
+            let groupScore = 0
             let groupState = waypointPending
             for (let visitIndex = 0;
                  visitIndex < sourceGroup.occurrenceIndices.length;
@@ -700,6 +686,11 @@ Item {
                 if (occurrence.state === waypointPassed) {
                     if (occurrence.isWaypoint) {
                         completedVisitCount++
+                        const occurrenceScore = Number(occurrence.score)
+                        if (isFinite(occurrenceScore) && occurrenceScore >= 0) {
+                            groupScore += occurrenceScore
+                            totalScore += occurrenceScore
+                        }
                     }
                     groupState = waypointPassed
                 } else if (occurrence.state === waypointActive) {
@@ -744,12 +735,14 @@ Item {
                 hasLandOccurrence: sourceGroup.hasLandOccurrence,
                 waypointNumber: sourceGroup.waypointNumber,
                 state: groupState,
+                score: completedVisitCount > 0 ? groupScore : -1,
                 label: label
             })
             states.push(groupState)
         }
         physicalWaypointGroups = groups
         waypointStates = states
+        estimatedScore = totalScore
         activeWaypointIndex = activeIndex >= 0
                 ? missionOccurrences[activeIndex].physicalWaypointIndex
                 : -1
@@ -870,6 +863,7 @@ Item {
     function refreshTargetItem() {
         const sequenceNumber = _currentMissionSequence()
         _targetSequenceNumber = sequenceNumber
+        updateTargetMetrics()
         _targetMissionItem = null
         routeText = "-- >>> --"
         routeDetailText = ""
@@ -1241,67 +1235,191 @@ Item {
         readonly property real routeDetailFontSize:
             Math.max(10, Math.min(13, width * 0.050))
 
-        Column {
-            id: infoColumn
+        Item {
+            id: infoContent
 
-            readonly property real rowSpacing:     Math.max(2, height * 0.014)
-            readonly property real routeRowHeight: Math.max(1, height * 0.20)
-            readonly property real rowHeight:
-                Math.max(1, (height - routeRowHeight - (rowSpacing * 6)) / 6)
+            readonly property real sectionSpacing: Math.max(8, height * 0.035)
 
             anchors.fill:    parent
             anchors.margins: Math.max(5, Math.min(parent.width, parent.height) * 0.055)
-            spacing:         rowSpacing
 
-            Repeater {
-                model: 7
+            Item {
+                id: routeInfoRow
+
+                anchors.left:  parent.left
+                anchors.right: parent.right
+                anchors.top:   parent.top
+                height:        Math.max(1, infoContent.height * 0.20)
+
+                QGCLabel {
+                    anchors.left:           parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width:                  parent.width * 0.52
+                    text:                   qsTr("ROUTE")
+                    color:                  root._standbyColor
+                    elide:                  Text.ElideRight
+                    font.pixelSize:         infoArea.infoLabelFontSize
+                }
+
+                QGCLabel {
+                    anchors.right:          parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    width:                  parent.width
+                    text:                   root._validText(root.routeText, "-- >>> --")
+                    color:                  root._standbyBorderColor
+                    elide:                  Text.ElideRight
+                    horizontalAlignment:    Text.AlignRight
+                    font.bold:              true
+                    font.pixelSize:         infoArea.routeValueFontSize
+                }
+
+                QGCLabel {
+                    anchors.right:  parent.right
+                    anchors.bottom: parent.bottom
+                    visible:        root.routeDetailText.length > 0
+                    width:          parent.width
+                    text:           root.routeDetailText
+                    color:          root._standbyColor
+                    elide:          Text.ElideRight
+                    horizontalAlignment: Text.AlignRight
+                    font.bold:      true
+                    font.pixelSize: infoArea.routeDetailFontSize
+                }
+            }
+
+            QGCLabel {
+                id: waypointStatusTitle
+
+                anchors.left:      parent.left
+                anchors.right:     parent.right
+                anchors.top:       routeInfoRow.bottom
+                anchors.topMargin: infoContent.sectionSpacing
+                text:              qsTr("WP STATUS")
+                color:             root._standbyColor
+                elide:             Text.ElideRight
+                font.bold:         true
+                font.pixelSize:    infoArea.infoLabelFontSize
+            }
+
+            QGCListView {
+                id: waypointStatusList
+
+                anchors.left:      parent.left
+                anchors.right:     parent.right
+                anchors.top:       waypointStatusTitle.bottom
+                anchors.bottom:    totalScoreRow.top
+                anchors.topMargin: Math.max(4, infoContent.sectionSpacing * 0.5)
+                anchors.bottomMargin: Math.max(4, infoContent.sectionSpacing * 0.35)
+                spacing:           Math.max(2, height * 0.012)
+                model: root.physicalWaypointGroups
+                       ? root.physicalWaypointGroups.filter(function(group) {
+                           return group.hasWaypointOccurrence
+                                   && group.waypointNumber > 0
+                       })
+                       : []
+                indicatorColor: root._standbyBorderColor
 
                 delegate: Item {
-                    id: infoRow
+                    id: waypointStatusRow
 
-                    required property int index
+                    required property var modelData
 
-                    width:  infoColumn.width
-                    height: infoRow.index === 0
-                            ? infoColumn.routeRowHeight
-                            : infoColumn.rowHeight
+                    readonly property int state: Number(modelData.state)
+                    readonly property color stateColor:
+                        root._waypointColor(modelData.physicalWaypointIndex)
+
+                    width:  ListView.view.width
+                    height: Math.max(22, waypointStatusLabel.implicitHeight + 6)
 
                     QGCLabel {
+                        id: waypointStatusSymbol
+
                         anchors.left:           parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        width:                  parent.width * 0.52
-                        text:                   root._infoLabel(infoRow.index)
-                        color:                  root._standbyColor
-                        elide:                  Text.ElideRight
-                        font.pixelSize:         infoArea.infoLabelFontSize
+                        width:                  Math.max(12, infoArea.infoValueFontSize * 0.75)
+                        text:                   waypointStatusRow.state === root.waypointPassed
+                                                ? "✓"
+                                                : waypointStatusRow.state === root.waypointActive
+                                                  ? "●"
+                                                  : "○"
+                        color:                  waypointStatusRow.stateColor
+                        horizontalAlignment:    Text.AlignHCenter
+                        font.bold:              true
+                        font.pixelSize:         infoArea.infoValueFontSize
                     }
 
                     QGCLabel {
+                        id: waypointStatusLabel
+
+                        anchors.left:           waypointStatusSymbol.right
+                        anchors.leftMargin:      Math.max(3, infoArea.infoValueFontSize * 0.2)
+                        anchors.right:          waypointScoreLabel.left
+                        anchors.rightMargin:     Math.max(3, infoArea.infoValueFontSize * 0.2)
+                        anchors.verticalCenter: parent.verticalCenter
+                        text:                   qsTr("WP%1").arg(
+                                                    waypointStatusRow.modelData.waypointNumber)
+                        color:                  waypointStatusRow.stateColor
+                        elide:                  Text.ElideRight
+                        font.bold:              waypointStatusRow.modelData.state
+                                                === root.waypointActive
+                        font.pixelSize:         infoArea.infoValueFontSize
+                    }
+
+                    QGCLabel {
+                        id: waypointScoreLabel
+
                         anchors.right:          parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        width:                  infoRow.index === 0 ? parent.width : parent.width * 0.47
-                        text:                   root._infoDisplayValue(infoRow.index)
-                        color:                  root._standbyBorderColor
+                        width:                  parent.width * 0.42
+                        text:                   waypointStatusRow.modelData.completedVisitCount > 0
+                                                && Number(waypointStatusRow.modelData.score) >= 0
+                                                ? qsTr("%1 pts").arg(
+                                                      waypointStatusRow.modelData.score)
+                                                : "--"
+                        color:                  waypointStatusRow.stateColor
                         elide:                  Text.ElideRight
                         horizontalAlignment:    Text.AlignRight
-                        font.bold:              true
-                        font.pixelSize:         infoRow.index === 0
-                                                ? infoArea.routeValueFontSize
-                                                : infoArea.infoValueFontSize
+                        font.bold:              waypointStatusRow.state === root.waypointPassed
+                        font.pixelSize:         infoArea.infoValueFontSize
                     }
+                }
+            }
 
-                    QGCLabel {
-                        anchors.right:  parent.right
-                        anchors.bottom: parent.bottom
-                        visible:        infoRow.index === 0 && root.routeDetailText.length > 0
-                        width:          parent.width
-                        text:           root.routeDetailText
-                        color:          root._standbyColor
-                        elide:          Text.ElideRight
-                        horizontalAlignment: Text.AlignRight
-                        font.bold:      true
-                        font.pixelSize: infoArea.routeDetailFontSize
-                    }
+            Item {
+                id: totalScoreRow
+
+                anchors.left:   parent.left
+                anchors.right:  parent.right
+                anchors.bottom: parent.bottom
+                height:         Math.max(28, infoArea.infoValueFontSize * 1.7)
+
+                Rectangle {
+                    anchors.left:  parent.left
+                    anchors.right: parent.right
+                    anchors.top:   parent.top
+                    height:        1
+                    color:         Qt.rgba(0.32, 0.42, 0.48, 0.35)
+                }
+
+                QGCLabel {
+                    anchors.left:           parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    text:                   qsTr("TOTAL SCORE")
+                    color:                  root._standbyColor
+                    elide:                  Text.ElideRight
+                    font.bold:              true
+                    font.pixelSize:         infoArea.infoLabelFontSize
+                }
+
+                QGCLabel {
+                    anchors.right:          parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text:                   qsTr("%1 pts").arg(root.estimatedScore)
+                    color:                  root._standbyBorderColor
+                    elide:                  Text.ElideRight
+                    horizontalAlignment:    Text.AlignRight
+                    font.bold:              true
+                    font.pixelSize:         infoArea.infoValueFontSize
                 }
             }
         }

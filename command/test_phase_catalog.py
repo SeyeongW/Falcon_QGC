@@ -61,6 +61,7 @@ class PhaseCatalogTest(unittest.TestCase):
                     "title": "사전 점검",
                     "description": "기체 상태 확인",
                     "script": "phase0.py",
+                    "confirmation": "ok",
                 },
                 {
                     "id": 100,
@@ -75,10 +76,68 @@ class PhaseCatalogTest(unittest.TestCase):
         payload = catalog_payload(phases)
 
         self.assertEqual(list(phases), [0, 100])
+        self.assertEqual(phases[0].confirmation, "ok")
+        self.assertEqual(phases[100].confirmation, "none")
+        self.assertEqual(phases[0].on_ok, "complete")
         self.assertEqual(phases[100].title, "그리퍼 시연")
         self.assertEqual(payload["phases"][1]["id"], 100)
         self.assertTrue(payload["phases"][1]["independent"])
+        self.assertEqual(payload["phases"][0]["confirmation"], "ok")
+        self.assertEqual(payload["phases"][0]["on_ok"], "complete")
         self.assertNotIn(str(self.command_dir), json.dumps(payload))
+
+    def test_rejects_unknown_confirmation(self):
+        self._write_script("phase0.py")
+        self._write_manifest(
+            [
+                {
+                    "id": 0,
+                    "title": "Phase 0",
+                    "description": "test",
+                    "script": "phase0.py",
+                    "confirmation": "yes_no",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(CatalogError, "confirmation"):
+            load_phase_catalog(self.command_dir)
+
+    def test_accepts_start_mission_after_ok(self):
+        self._write_script("phase1.py")
+        self._write_manifest(
+            [
+                {
+                    "id": 1,
+                    "title": "Phase 1",
+                    "description": "hover then mission",
+                    "script": "phase1.py",
+                    "confirmation": "ok",
+                    "on_ok": "start_mission",
+                }
+            ]
+        )
+
+        phases = load_phase_catalog(self.command_dir)
+
+        self.assertEqual(phases[1].on_ok, "start_mission")
+
+    def test_rejects_start_mission_without_confirmation(self):
+        self._write_script("phase1.py")
+        self._write_manifest(
+            [
+                {
+                    "id": 1,
+                    "title": "Phase 1",
+                    "description": "invalid workflow",
+                    "script": "phase1.py",
+                    "on_ok": "start_mission",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(CatalogError, "confirmation"):
+            load_phase_catalog(self.command_dir)
 
     def test_rejects_duplicate_ids(self):
         self._write_script("phase0.py")
@@ -125,6 +184,54 @@ class PhaseCatalogTest(unittest.TestCase):
 
         with self.assertRaisesRegex(CatalogError, "phase script가 없습니다"):
             load_phase_catalog(self.command_dir)
+
+    def test_pending_phase_activates_when_script_arrives(self):
+        self._write_manifest(
+            [
+                {
+                    "id": 4,
+                    "title": "Phase 4",
+                    "description": "waiting for code",
+                    "script": "phase4.py",
+                    "pending": True,
+                    "confirmation": "ok_again",
+                }
+            ]
+        )
+
+        phases = load_phase_catalog(self.command_dir)
+        self.assertFalse(phases[4].available)
+        self.assertFalse(catalog_payload(phases)["phases"][0]["available"])
+
+        self._write_script("phase4.py")
+        phases = load_phase_catalog(self.command_dir)
+
+        self.assertTrue(phases[4].available)
+
+    def test_retry_script_availability_is_reported(self):
+        self._write_script("phase2.py")
+        self._write_manifest(
+            [
+                {
+                    "id": 2,
+                    "title": "Phase 2",
+                    "description": "landing retry",
+                    "script": "phase2.py",
+                    "confirmation": "ok_again",
+                    "confirm_after": "landed",
+                    "ready_action": "land",
+                    "retry_script": "failsafe.py",
+                }
+            ]
+        )
+
+        phases = load_phase_catalog(self.command_dir)
+        self.assertFalse(catalog_payload(phases)["phases"][0]["retry_available"])
+
+        self._write_script("failsafe.py")
+        phases = load_phase_catalog(self.command_dir)
+
+        self.assertTrue(catalog_payload(phases)["phases"][0]["retry_available"])
 
 
 if __name__ == "__main__":

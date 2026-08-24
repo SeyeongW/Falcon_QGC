@@ -23,6 +23,8 @@ constexpr const char *kRunPhaseTopic = "command/run_phase";
 constexpr const char *kCatalogTopic = "command/catalog";
 constexpr const char *kStatusTopic = "command/status";
 constexpr const char *kAbortTopic = "command/abort";
+constexpr const char *kPhaseResponseTopic = "command/phase_response";
+constexpr const char *kActionTopic = "command/run_action";
 constexpr int kCatalogVersion = 1;
 }
 
@@ -59,6 +61,8 @@ RosBridge::RosBridge(QObject *parent)
     // onboard MC's dynamic catalog plus live execution status.
     _runPhasePub = _node->create_publisher<std_msgs::msg::Int32>(kRunPhaseTopic, 10);
     _abortPub = _node->create_publisher<std_msgs::msg::Empty>(kAbortTopic, 10);
+    _phaseResponsePub = _node->create_publisher<std_msgs::msg::String>(kPhaseResponseTopic, 10);
+    _actionPub = _node->create_publisher<std_msgs::msg::String>(kActionTopic, 10);
     _subscribePhaseTopics();
 
     qCDebug(RosBridgeLog) << "RosBridge up, node" << kNodeName;
@@ -76,6 +80,8 @@ RosBridge::~RosBridge()
     _phaseStatusSub.reset();
     _runPhasePub.reset();
     _abortPub.reset();
+    _phaseResponsePub.reset();
+    _actionPub.reset();
     _node.reset();
     if (_ownsContext && rclcpp::ok()) {
         rclcpp::shutdown();
@@ -264,6 +270,55 @@ void RosBridge::runPhase(int n)
     qCDebug(RosBridgeLog) << "runPhase" << n << "published";
 }
 
+void RosBridge::respondPhase(const QString &response)
+{
+    const QString normalizedResponse = response.trimmed().toLower();
+    if (normalizedResponse != QStringLiteral("ok") && normalizedResponse != QStringLiteral("again")) {
+        qCWarning(RosBridgeLog) << "invalid phase response" << response;
+        return;
+    }
+    if (!_phaseResponsePub) {
+        qCWarning(RosBridgeLog) << "phase response ignored: no publisher";
+        return;
+    }
+
+    std_msgs::msg::String msg;
+    msg.data = normalizedResponse.toStdString();
+    _phaseResponsePub->publish(msg);
+    qCDebug(RosBridgeLog) << "phase response" << normalizedResponse << "published";
+}
+
+void RosBridge::setCameraEnabled(bool enabled)
+{
+    if (!_actionPub) {
+        qCWarning(RosBridgeLog) << "camera action ignored: no publisher";
+        return;
+    }
+
+    std_msgs::msg::String msg;
+    msg.data = enabled ? "camera:on" : "camera:off";
+    _actionPub->publish(msg);
+    qCDebug(RosBridgeLog) << QString::fromStdString(msg.data) << "published";
+}
+
+void RosBridge::runGripper(const QString &action)
+{
+    const QString normalizedAction = action.trimmed().toLower();
+    if (normalizedAction != QStringLiteral("open") && normalizedAction != QStringLiteral("close")) {
+        qCWarning(RosBridgeLog) << "invalid gripper action" << action;
+        return;
+    }
+    if (!_actionPub) {
+        qCWarning(RosBridgeLog) << "gripper action ignored: no publisher";
+        return;
+    }
+
+    std_msgs::msg::String msg;
+    msg.data = QStringLiteral("gripper:%1").arg(normalizedAction).toStdString();
+    _actionPub->publish(msg);
+    qCDebug(RosBridgeLog) << QString::fromStdString(msg.data) << "published";
+}
+
 void RosBridge::abortMission()
 {
     if (!_abortPub) {
@@ -368,11 +423,18 @@ void RosBridge::_onPhaseCatalog(const std_msgs::msg::String::ConstSharedPtr &msg
             return;
         }
 
+        const QJsonValue availableValue = phaseObject.value(QStringLiteral("available"));
+        if (!availableValue.isUndefined() && !availableValue.isBool()) {
+            qCWarning(RosBridgeLog) << "bad command/catalog available flag for phase" << phaseId;
+            return;
+        }
+
         QVariantMap phase;
         phase.insert(QStringLiteral("id"), phaseId);
         phase.insert(QStringLiteral("title"), titleValue.toString().trimmed());
         phase.insert(QStringLiteral("desc"), descValue.toString());
         phase.insert(QStringLiteral("independent"), independentValue.toBool(true));
+        phase.insert(QStringLiteral("available"), availableValue.toBool(true));
         catalog.append(phase);
         phaseIds.insert(phaseId);
     }
@@ -395,6 +457,7 @@ void RosBridge::_onPhaseStatus(const std_msgs::msg::String::ConstSharedPtr &msg)
     _phase = obj.value(QStringLiteral("phase")).toInt(-1);
     _phaseState = obj.value(QStringLiteral("state")).toString(QStringLiteral("idle"));
     _phaseMsg = obj.value(QStringLiteral("msg")).toString();
+    _phasePrompt = obj.value(QStringLiteral("prompt")).toString();
     _phaseProgress = obj.value(QStringLiteral("progress")).toDouble(-1.0);
 
     QVariantList done;
@@ -402,6 +465,15 @@ void RosBridge::_onPhaseStatus(const std_msgs::msg::String::ConstSharedPtr &msg)
         done.append(v.toInt());
     }
     _phaseDone = done;
+
+    const QJsonObject actions = obj.value(QStringLiteral("actions")).toObject();
+    _cameraAvailable = actions.value(QStringLiteral("camera_available")).toBool(false);
+    _cameraRunning = actions.value(QStringLiteral("camera_running")).toBool(false);
+    _gripperOpenAvailable = actions.value(QStringLiteral("gripper_open_available")).toBool(false);
+    _gripperCloseAvailable = actions.value(QStringLiteral("gripper_close_available")).toBool(false);
+    _gripperBusy = actions.value(QStringLiteral("gripper_busy")).toBool(false);
+    _gripperState = actions.value(QStringLiteral("gripper_state")).toString(QStringLiteral("unknown"));
+    _actionMsg = actions.value(QStringLiteral("msg")).toString();
 
     _lastPhaseMs = QDateTime::currentMSecsSinceEpoch();
     _phaseLinkOk = true;

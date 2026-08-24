@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 import QGroundControl
@@ -38,7 +39,10 @@ Rectangle {
     readonly property string _state:      RosBridge.phaseState        // idle|running|done|failed
     readonly property int    _activePhase: RosBridge.phase
     readonly property var    _done:       RosBridge.phaseDone
-    readonly property bool   _busy:       _state === "running"
+    readonly property bool   _awaitingConfirmation: _state === "awaiting_confirmation"
+    readonly property bool   _busy:       _state === "running" || _awaitingConfirmation
+    property string _shownPromptKey: ""
+    property var _activePromptDialog: null
 
     // Connection state machine: attempt to reach the orchestrator for up to 60 s;
     // if command/status never arrives, surface a red "연결 실패" + a retry button.
@@ -63,6 +67,106 @@ Rectangle {
     function _isDone(phaseId)    { return _done.indexOf(phaseId) >= 0 }
     function _isRunning(phaseId) { return _busy && _activePhase === phaseId }
     function _clickable(phaseId) { return _linkOk && !_busy }
+
+    function _syncPhasePrompt() {
+        if (!_linkOk || !_awaitingConfirmation || RosBridge.phasePrompt.length === 0) {
+            if (_activePromptDialog) {
+                _activePromptDialog.close()
+                _activePromptDialog = null
+            }
+            _shownPromptKey = ""
+            return
+        }
+
+        const promptKey = _activePhase + ":" + RosBridge.phasePrompt
+        if (_shownPromptKey === promptKey)
+            return
+
+        _shownPromptKey = promptKey
+        const promptText = _activePhase === 0
+            ? qsTr("기체 점검 코드가 정상적으로 종료되었습니다. OK를 누르면 Phase 0을 완료로 기록합니다.")
+            : RosBridge.phaseMsg
+        if (RosBridge.phasePrompt === "ok_again") {
+            _activePromptDialog = phaseRetryDialogFactory.open({
+                phaseId: _activePhase,
+                promptText: promptText
+            })
+        } else {
+            QGroundControl.showMessageDialog(
+                root,
+                qsTr("Phase %1 확인").arg(_activePhase),
+                promptText,
+                Dialog.Ok,
+                function() { RosBridge.respondPhase("ok") }
+            )
+        }
+    }
+
+    Connections {
+        target: RosBridge
+        function onPhaseStatusChanged() { root._syncPhasePrompt() }
+    }
+
+    Component.onCompleted: _syncPhasePrompt()
+
+    QGCPopupDialogFactory {
+        id: phaseRetryDialogFactory
+        dialogComponent: phaseRetryDialogComponent
+    }
+
+    Component {
+        id: phaseRetryDialogComponent
+
+        QGCPopupDialog {
+            id: phaseRetryDialog
+            required property int phaseId
+            required property string promptText
+
+            title: qsTr("Phase %1 착륙 위치 확인").arg(phaseId)
+            buttons: Dialog.NoButton
+            onClosed: {
+                if (root._activePromptDialog === phaseRetryDialog)
+                    root._activePromptDialog = null
+            }
+
+            ColumnLayout {
+                width: Math.max(
+                    ScreenTools.defaultFontPixelWidth * 42,
+                    phaseRetryDialog.headerMinWidth
+                )
+                spacing: root._margin
+
+                QGCLabel {
+                    Layout.fillWidth: true
+                    text: phaseRetryDialog.promptText
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: root._margin
+
+                    QGCButton {
+                        Layout.fillWidth: true
+                        text: qsTr("OK")
+                        onClicked: {
+                            RosBridge.respondPhase("ok")
+                            phaseRetryDialog.close()
+                        }
+                    }
+
+                    QGCButton {
+                        Layout.fillWidth: true
+                        text: qsTr("Again")
+                        onClicked: {
+                            RosBridge.respondPhase("again")
+                            phaseRetryDialog.close()
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     implicitHeight: layout.implicitHeight + (_margin * 2)
 
@@ -109,6 +213,48 @@ Rectangle {
 
         Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(0.22, 0.74, 0.97, 0.28) }
 
+        // --- independent payload controls ---
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: root._margin
+
+            QGCButton {
+                text: RosBridge.cameraRunning ? qsTr("Cam OFF") : qsTr("Cam ON")
+                enabled: root._linkOk && RosBridge.cameraAvailable
+                onClicked: RosBridge.setCameraEnabled(!RosBridge.cameraRunning)
+            }
+
+            QGCButton {
+                text: qsTr("Gripper Open")
+                enabled: root._linkOk && RosBridge.gripperOpenAvailable && !RosBridge.gripperBusy
+                onClicked: RosBridge.runGripper("open")
+            }
+
+            QGCButton {
+                text: qsTr("Gripper Close")
+                enabled: root._linkOk && RosBridge.gripperCloseAvailable && !RosBridge.gripperBusy
+                onClicked: RosBridge.runGripper("close")
+            }
+
+            QGCLabel {
+                Layout.fillWidth: true
+                text: {
+                    if (RosBridge.actionMsg.length > 0)
+                        return RosBridge.actionMsg
+                    if (!RosBridge.cameraAvailable)
+                        return qsTr("cam.py 없음")
+                    if (!RosBridge.gripperOpenAvailable || !RosBridge.gripperCloseAvailable)
+                        return qsTr("Gripper 스크립트 대기 중")
+                    return qsTr("장치 제어 대기")
+                }
+                color: root._mutedText
+                elide: Text.ElideRight
+                font.pointSize: ScreenTools.smallFontPointSize
+            }
+        }
+
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Qt.rgba(0.22, 0.74, 0.97, 0.28) }
+
         // --- phase rows (scrollable when they overflow the panel height) ---
         ScrollView {
             id: phaseScroll
@@ -131,7 +277,8 @@ Rectangle {
                 readonly property int  phaseId:   Number(modelData.id)
                 readonly property bool done:      root._isDone(phaseId)
                 readonly property bool running:   root._isRunning(phaseId)
-                readonly property bool clickable: root._clickable(phaseId)
+                readonly property bool available: modelData.available !== false
+                readonly property bool clickable: available && root._clickable(phaseId)
 
                 Layout.fillWidth: true
                 Layout.preferredHeight: rowCol.implicitHeight + (root._margin * 1.5)
@@ -207,7 +354,8 @@ Rectangle {
 
                         // state chip
                         QGCLabel {
-                            text: phaseRow.running ? qsTr("진행 중")
+                            text: phaseRow.running ? (root._awaitingConfirmation ? qsTr("확인 대기") : qsTr("진행 중"))
+                                                   : !phaseRow.available ? qsTr("코드 대기")
                                                    : phaseRow.done && phaseRow.clickable ? qsTr("재실행")
                                                                                        : phaseRow.done ? qsTr("완료")
                                                                                                        : phaseRow.clickable ? qsTr("실행")
@@ -251,6 +399,8 @@ Rectangle {
                         return qsTr("오케스트레이터 연결 시도 중… (최대 60초)")
                     if (root._state === "failed")
                         return qsTr("실패: %1").arg(RosBridge.phaseMsg)
+                    if (root._awaitingConfirmation)
+                        return RosBridge.phaseMsg
                     if (root._phases.length === 0)
                         return qsTr("MC에서 phase 목록을 기다리는 중…")
                     if (root._busy)
@@ -263,9 +413,24 @@ Rectangle {
             }
 
             QGCButton {
+                text: qsTr("OK")
+                visible: root._awaitingConfirmation
+                         && (RosBridge.phasePrompt === "ok" || RosBridge.phasePrompt === "ok_again")
+                onClicked: RosBridge.respondPhase("ok")
+            }
+
+            QGCButton {
+                text: qsTr("Again")
+                visible: root._awaitingConfirmation && RosBridge.phasePrompt === "ok_again"
+                onClicked: RosBridge.respondPhase("again")
+            }
+
+            QGCButton {
                 // Take control back from the orchestrator: abort the running phase
                 // and hand the vehicle to the GCS (PX4 switches to HOLD / hover).
-                text: root._busy ? qsTr("임무 중단 · 제어권 회수") : qsTr("제어권 회수 (HOLD)")
+                text: root._awaitingConfirmation ? qsTr("확인 취소 · 제어권 회수")
+                                                 : root._busy ? qsTr("임무 중단 · 제어권 회수")
+                                                              : qsTr("제어권 회수 (HOLD)")
                 visible: root._linkOk
                 onClicked: RosBridge.abortMission()
             }

@@ -58,6 +58,10 @@ Item {
     readonly property real _videoPaneHeight: _stackedPaneHeight * _videoPaneShare
     readonly property real _modelPaneHeight: _stackedPaneHeight - _videoPaneHeight
     readonly property real _consolePaneWidth: Math.max(0, (_leftPaneWidth - _paneSpacing) * _consolePaneShare)
+    readonly property real _mapTelemetryPaneHeight: Math.min(
+                                                        ScreenTools.defaultFontPixelHeight * 6,
+                                                        Math.max(0, mapHolder.height - toolbar.height) * 0.18
+                                                    )
 
     property real   _fullItemZorder:    0
 
@@ -121,8 +125,23 @@ Item {
             anchors.leftMargin:     _paneSpacing
             anchors.right:          parent.right
             anchors.top:            parent.top
+            anchors.bottom:         mapTelemetryPane.top
+            anchors.bottomMargin:   _paneSpacing
+            clip:                   true
+        }
+
+        Rectangle {
+            id:                     mapTelemetryPane
+            anchors.left:           leftPane.right
+            anchors.leftMargin:     _paneSpacing
+            anchors.right:          parent.right
             anchors.bottom:         parent.bottom
             anchors.bottomMargin:   toolbar.height
+            height:                 _mapTelemetryPaneHeight
+            color:                  Qt.rgba(0.03, 0.08, 0.14, 0.96)
+            border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
+            border.width:           1
+            radius:                 6
             clip:                   true
         }
 
@@ -289,6 +308,7 @@ Item {
             z:                      _fullItemZorder + 2
             parentToolInsets:       _toolInsets
             mapControl:             _mapControl
+            telemetryContainer:     mapTelemetryPane
             visible:                !QGroundControl.videoManager.fullScreen
         }
 

@@ -5,25 +5,46 @@
       "id": 0,
       "title": "사전 점검",
       "description": "센서 · GPS · 배터리 확인",
-      "script": "phase0.py"
+      "script": "phase0.py",
+      "confirmation": "ok"
     },
     {
       "id": 1,
       "title": "이륙 · 정찰",
       "description": "VTOL 이륙 후 고정익 천이 · 정찰",
-      "script": "phase1.py"
+      "script": "phase1.py",
+      "confirmation": "ok",
+      "on_ok": "start_mission"
     },
     {
       "id": 2,
       "title": "대상 탐지 · 접근",
       "description": "짐벌 정렬 · 정밀 착륙 접근",
-      "script": "phase2.py"
+      "script": "phase2.py",
+      "confirmation": "ok_again",
+      "confirm_after": "landed",
+      "ready_action": "land",
+      "retry_script": "failsafe.py"
     },
     {
       "id": 3,
-      "title": "복귀 · 착륙",
-      "description": "고정익 복귀 후 VTOL 착륙",
-      "script": "phase3.py"
+      "title": "구조자 이송 · 2차 미션",
+      "description": "지정점 호버링 후 2번째 Mission 비행",
+      "script": "phase3.py",
+      "pending": true,
+      "confirmation": "ok",
+      "on_ok": "start_mission"
+    },
+    {
+      "id": 4,
+      "title": "마커 착륙 · 구조자 하기",
+      "description": "랜딩 마커 인식 착륙 후 구조자 하기",
+      "script": "phase4.py",
+      "pending": true,
+      "confirmation": "ok_again",
+      "confirm_after": "landed",
+      "ready_action": "land",
+      "retry_script": "failsafe2.py"
     }
   ]
 }
