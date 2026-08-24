@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "phases": [
+    {
+      "id": 0,
+      "title": "사전 점검",
+      "description": "센서 · GPS · 배터리 확인",
+      "script": "phase0.py"
+    },
+    {
+      "id": 1,
+      "title": "이륙 · 정찰",
+      "description": "VTOL 이륙 후 고정익 천이 · 정찰",
+      "script": "phase1.py"
+    },
+    {
+      "id": 2,
+      "title": "대상 탐지 · 접근",
+      "description": "짐벌 정렬 · 정밀 착륙 접근",
+      "script": "phase2.py"
+    },
+    {
+      "id": 3,
+      "title": "복귀 · 착륙",
+      "description": "고정익 복귀 후 VTOL 착륙",
+      "script": "phase3.py"
+    }
+  ]
+}

@@ -1,41 +1,59 @@
 #!/usr/bin/env python3
-"""Phase orchestrator for the custom QGC mission panel.
+"""Onboard phase orchestrator for the custom QGC mission panel.
 
 QGC publishes a phase number on `command/run_phase` (std_msgs/Int32) when the
-operator clicks a phase button. This node then runs the matching `phaseN.py`
-script (sequentially — phase N only runs once N-1 has completed) and streams
-live progress back on `command/status` (std_msgs/String, JSON payload) so QGC can
-show "running / done / failed" and a human-readable description of the current
-section (e.g. "WP2 이동 중", "고정익 천이 중").
+operator clicks a phase button. This node looks up that id in its local dynamic
+catalog, runs the corresponding local Python script independently, and streams
+live progress back on `command/status` (std_msgs/String, JSON payload).
+
+The phase catalog is published on `command/catalog` (std_msgs/String, JSON).
+`phases.json` supplies display metadata and may map ids to any Python script
+below this directory. Unlisted `phaseN.py` files are discovered automatically.
+The catalog is reloaded at runtime, so adding a valid local phase does not
+require restarting this node.
 
 Status JSON:
     {"phase": int, "state": "idle|running|done|failed",
      "msg": str, "progress": float(-1..1), "done": [completed phase ids]}
 
-Run:  python3 command/orchestrator.py   (needs MAVROS running for section text)
+Catalog JSON:
+    {"version": 1, "phases": [
+        {"id": int, "title": str, "desc": str, "script": str,
+         "independent": true}]}
+
+Run on the aircraft mission computer:
+    python3 command/orchestrator.py   (needs MAVROS running for vehicle control)
 """
 import fcntl
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos import (
+    DurabilityPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
 
 from std_msgs.msg import Empty, Int32, String
 from mavros_msgs.msg import WaypointReached, ExtendedState, State
 from mavros_msgs.srv import SetMode
+
+from common.phase_catalog import CatalogError, catalog_payload, load_phase_catalog
 
 
 # Directory that holds this orchestrator and the phaseN.py scripts. Derived from
 # this file's own location so the folder can live anywhere (any user's home, /opt,
 # a USB mount, a colcon workspace) and still find the phases — no hardcoded path.
 COMMAND_DIR = os.path.dirname(os.path.abspath(__file__))
-NUM_PHASES = 4  # phase0 .. phase3 (phase{N}.py must exist for each)
+CATALOG_REFRESH_SEC = 1.0
 
 # VTOL states (mavros ExtendedState.vtol_state)
 VTOL_TRANS_TO_FW = 1
@@ -54,6 +72,12 @@ class PhaseOrchestrator(Node):
         super().__init__("phase_orchestrator")
 
         self.status_pub = self.create_publisher(String, "command/status", 10)
+        catalog_qos = QoSProfile(depth=1)
+        catalog_qos.reliability = ReliabilityPolicy.RELIABLE
+        catalog_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self.catalog_pub = self.create_publisher(
+            String, "command/catalog", catalog_qos
+        )
         self.create_subscription(Int32, "command/run_phase", self._on_run_phase, 10)
         # GCS take-over: abort the running phase and hand control back (HOLD).
         self.create_subscription(Empty, "command/abort", self._on_abort, 10)
@@ -77,16 +101,55 @@ class PhaseOrchestrator(Node):
         self._proc = None
         self._last_log = ""     # latest stdout line from the running phase
         self._aborting = False  # True while a GCS take-over is tearing a phase down
+        self._phases = {}       # validated local phase definitions, keyed by id
+        self._catalog_json = ""
+        self._last_catalog_error = ""
 
         # Latest status payload, republished every tick so a late subscriber
         # (e.g. QGC connecting after boot) always sees the current state.
         self._status = {"phase": -1, "state": "idle", "msg": "대기 중",
                         "progress": -1.0, "done": []}
 
+        self._reload_catalog(force=True)
+        self.create_timer(CATALOG_REFRESH_SEC, self._reload_catalog)
         self.create_timer(0.5, self._tick)  # push live status ~2 Hz
         self._publish("idle", -1, "대기 중", phase=-1)
         self.get_logger().info(
-            f"orchestrator up (phases 0..{NUM_PHASES - 1}, dir={COMMAND_DIR})")
+            f"orchestrator up ({len(self._phases)} phases, dir={COMMAND_DIR})")
+
+    # --- dynamic phase catalog ----------------------------------------------
+    def _reload_catalog(self, force=False):
+        """Reload local phase definitions and publish changes to FGC."""
+        try:
+            phases = load_phase_catalog(COMMAND_DIR)
+            payload = json.dumps(catalog_payload(phases), ensure_ascii=False)
+        except CatalogError as exc:
+            error = str(exc)
+            if error != self._last_catalog_error:
+                self.get_logger().error(f"phase catalog 갱신 실패: {error}")
+                self._last_catalog_error = error
+            return
+
+        self._last_catalog_error = ""
+        if not force and payload == self._catalog_json:
+            return
+
+        self._phases = phases
+        self._catalog_json = payload
+        self._done.intersection_update(phases)
+        if hasattr(self, "_status"):
+            self._status["done"] = sorted(self._done)
+        self._publish_catalog()
+
+        ids = ", ".join(str(phase_id) for phase_id in phases) or "none"
+        self.get_logger().info(f"phase catalog 갱신됨 (ids: {ids})")
+
+    def _publish_catalog(self):
+        if not self._catalog_json:
+            return
+        msg = String()
+        msg.data = self._catalog_json
+        self.catalog_pub.publish(msg)
 
     # --- vehicle state callbacks --------------------------------------------
     def _on_wp(self, m):
@@ -135,8 +198,9 @@ class PhaseOrchestrator(Node):
     def _on_run_phase(self, msg):
         n = int(msg.data)
 
-        if n < 0 or n >= NUM_PHASES:
-            self._publish("failed", -1, f"잘못된 phase 번호: {n}", phase=n)
+        phase = self._phases.get(n)
+        if phase is None:
+            self._publish("failed", -1, f"등록되지 않은 Phase: {n}", phase=n)
             return
 
         if self._running is not None:
@@ -144,30 +208,26 @@ class PhaseOrchestrator(Node):
                           f"Phase {self._running} 실행 중 — 끝난 뒤 실행하세요", phase=self._running)
             return
 
-        # Sequential gate: phase N needs N-1 done (phase 0 always allowed).
-        if n != 0 and (n - 1) not in self._done:
-            self._publish("failed", -1, f"이전 Phase {n - 1} 미완료 — 순서대로 실행하세요", phase=n)
-            return
-
         # Claim the run here (on the ROS executor thread) so a rapid second
         # request is rejected by the guard above rather than racing the worker.
         self._running = n
-        threading.Thread(target=self._run_phase, args=(n,), daemon=True).start()
+        threading.Thread(target=self._run_phase, args=(phase,), daemon=True).start()
 
-    def _run_phase(self, n):
+    def _run_phase(self, phase):
+        n = phase.phase_id
         self._last_wp = -1
         self._last_log = ""
-        script = os.path.join(COMMAND_DIR, f"phase{n}.py")
+        script = str(phase.script_path)
 
         if not os.path.exists(script):
             self._running = None
             self._publish("failed", -1, f"{script} 없음", phase=n)
             return
 
-        self._publish("running", -1, f"Phase {n} 시작", phase=n)
+        self._publish("running", -1, f"{phase.title} 시작", phase=n)
         try:
             self._proc = subprocess.Popen(
-                ["python3", script], cwd=COMMAND_DIR,
+                [sys.executable, script], cwd=COMMAND_DIR,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1,
             )
@@ -191,7 +251,7 @@ class PhaseOrchestrator(Node):
             self._publish("idle", -1, "제어권 회수됨 — HOLD(제자리 호버링)", phase=-1)
         elif rc == 0:
             self._done.add(n)
-            self._publish("done", 1.0, f"Phase {n} 완료", phase=n)
+            self._publish("done", 1.0, f"{phase.title} 완료", phase=n)
         else:
             self._publish("failed", -1, f"Phase {n} 실패 (exit {rc}) — {self._last_log}", phase=n)
 

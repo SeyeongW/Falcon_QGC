@@ -9,11 +9,10 @@ import Custom.Ros
 
 /// Mission phase orchestrator panel (VTOL-GCS).
 ///
-/// Shows the four mission phases as a sequential checklist. Clicking an enabled
-/// phase publishes `command/run_phase` via `RosBridge`; the orchestrator runs the
-/// matching `phaseN.py` and streams `command/status` back, which drives the live
-/// progress bar, the current-section text (e.g. "WP2 이동 중", "고정익 천이 중"),
-/// and the completed/greyed-out state. Phase N stays locked until N-1 completes.
+/// Shows the dynamic phase catalog published by the onboard mission computer.
+/// Clicking any idle row publishes its catalog id on `command/run_phase`; the
+/// onboard orchestrator runs the matching local script and streams live status
+/// back. Completed phases remain available for independent repeated execution.
 Rectangle {
     id: root
 
@@ -29,13 +28,10 @@ Rectangle {
     readonly property color  _panel: "#0B1D33"
     readonly property color  _mutedText: "#94A3B8"
 
-    // Static phase metadata (title + one-line description). Index == phase id.
-    readonly property var _phases: [
-        { title: qsTr("사전 점검"),        desc: qsTr("센서 · GPS · 배터리 확인") },
-        { title: qsTr("이륙 · 정찰"),      desc: qsTr("VTOL 이륙 후 고정익 천이 · 정찰") },
-        { title: qsTr("대상 탐지 · 접근"), desc: qsTr("짐벌 정렬 · 정밀 착륙 접근") },
-        { title: qsTr("복귀 · 착륙"),      desc: qsTr("고정익 복귀 후 VTOL 착륙") }
-    ]
+    // Dynamic metadata from the MC's command/catalog topic. Catalog ids may be
+    // sparse (for example, a standalone gripper demo can use id 100), so the
+    // delegate must use modelData.id rather than its visual list index.
+    readonly property var _phases: RosBridge.phaseCatalog
 
     // --- live orchestrator status (from RosBridge / command/status) ---
     readonly property bool   _linkOk:     RosBridge.phaseLinkOk
@@ -64,12 +60,9 @@ Rectangle {
         connectTimer.restart()
     }
 
-    function _isDone(i)     { return _done.indexOf(i) >= 0 }
-    function _isRunning(i)  { return _busy && _activePhase === i }
-    function _prevDone(i)   { return i === 0 || _done.indexOf(i - 1) >= 0 }
-    // Clickable only when the orchestrator is up, nothing is running, this phase
-    // is not already done, and the previous phase has completed (sequential gate).
-    function _clickable(i)  { return _linkOk && !_busy && !_isDone(i) && _prevDone(i) }
+    function _isDone(phaseId)    { return _done.indexOf(phaseId) >= 0 }
+    function _isRunning(phaseId) { return _busy && _activePhase === phaseId }
+    function _clickable(phaseId) { return _linkOk && !_busy }
 
     implicitHeight: layout.implicitHeight + (_margin * 2)
 
@@ -133,12 +126,12 @@ Rectangle {
 
             delegate: Rectangle {
                 id: phaseRow
-                required property int index
                 required property var modelData
 
-                readonly property bool done:      root._isDone(index)
-                readonly property bool running:   root._isRunning(index)
-                readonly property bool clickable: root._clickable(index)
+                readonly property int  phaseId:   Number(modelData.id)
+                readonly property bool done:      root._isDone(phaseId)
+                readonly property bool running:   root._isRunning(phaseId)
+                readonly property bool clickable: root._clickable(phaseId)
 
                 Layout.fillWidth: true
                 Layout.preferredHeight: rowCol.implicitHeight + (root._margin * 1.5)
@@ -148,14 +141,14 @@ Rectangle {
                                        : root._panel
                 border.width: running ? 1 : 0
                 border.color: root._accent
-                opacity: (done || (!clickable && !running)) ? 0.55 : 1.0
+                opacity: (!clickable && !running) ? 0.55 : 1.0
 
                 MouseArea {
                     anchors.fill: parent
                     enabled: phaseRow.clickable
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     hoverEnabled: true
-                    onClicked: RosBridge.runPhase(phaseRow.index)
+                    onClicked: RosBridge.runPhase(phaseRow.phaseId)
                 }
 
                 ColumnLayout {
@@ -182,7 +175,7 @@ Rectangle {
                             border.color: phaseRow.running ? root._accent : Qt.rgba(0.22, 0.74, 0.97, 0.35)
                             QGCLabel {
                                 anchors.centerIn: parent
-                                text: phaseRow.done ? "✓" : phaseRow.index.toString()
+                                text: phaseRow.done ? "✓" : phaseRow.phaseId.toString()
                                 color: (phaseRow.done || phaseRow.running) ? "white" : qgcPal.text
                                 font.bold: true
                             }
@@ -192,7 +185,9 @@ Rectangle {
                             Layout.fillWidth: true
                             spacing: 0
                             QGCLabel {
-                                text: qsTr("Phase %1 · %2").arg(phaseRow.index).arg(phaseRow.modelData.title)
+                                text: phaseRow.modelData.title === ("Phase " + phaseRow.phaseId)
+                                          ? phaseRow.modelData.title
+                                          : qsTr("Phase %1 · %2").arg(phaseRow.phaseId).arg(phaseRow.modelData.title)
                                 color: "white"
                                 font.bold: true
                                 Layout.fillWidth: true
@@ -212,10 +207,11 @@ Rectangle {
 
                         // state chip
                         QGCLabel {
-                            text: phaseRow.done ? qsTr("완료")
-                                                : phaseRow.running ? qsTr("진행 중")
-                                                                   : phaseRow.clickable ? qsTr("실행")
-                                                                                        : qsTr("대기")
+                            text: phaseRow.running ? qsTr("진행 중")
+                                                   : phaseRow.done && phaseRow.clickable ? qsTr("재실행")
+                                                                                       : phaseRow.done ? qsTr("완료")
+                                                                                                       : phaseRow.clickable ? qsTr("실행")
+                                                                                                                            : qsTr("대기")
                             font.pointSize: ScreenTools.smallFontPointSize
                             font.bold: phaseRow.running
                             color: phaseRow.done ? "#22C55E"
@@ -255,9 +251,11 @@ Rectangle {
                         return qsTr("오케스트레이터 연결 시도 중… (최대 60초)")
                     if (root._state === "failed")
                         return qsTr("실패: %1").arg(RosBridge.phaseMsg)
+                    if (root._phases.length === 0)
+                        return qsTr("MC에서 phase 목록을 기다리는 중…")
                     if (root._busy)
                         return qsTr("Phase %1 진행 중 — %2").arg(root._activePhase).arg(RosBridge.phaseMsg)
-                    if (root._done.length >= root._phases.length)
+                    if (root._phases.length > 0 && root._done.length >= root._phases.length)
                         return qsTr("모든 임무 단계 완료 ✓")
                     return RosBridge.phaseMsg.length > 0 ? RosBridge.phaseMsg : qsTr("대기 중")
                 }

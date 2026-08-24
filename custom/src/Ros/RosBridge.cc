@@ -1,10 +1,15 @@
 #include "RosBridge.h"
 
+#include <cmath>
+#include <limits>
+
 #include <QtCore/QDateTime>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QLoggingCategory>
+#include <QtCore/QSet>
+#include <QtCore/QVariantMap>
 
 Q_LOGGING_CATEGORY(RosBridgeLog, "Custom.RosBridge")
 
@@ -15,8 +20,10 @@ constexpr const char *kCompressedType = "sensor_msgs/msg/CompressedImage";
 constexpr qint64 kActuatorStaleMs = 1500;   ///< no RCOut for this long -> go static
 constexpr qint64 kPhaseStaleMs = 3000;      ///< no command/status for this long -> link down
 constexpr const char *kRunPhaseTopic = "command/run_phase";
+constexpr const char *kCatalogTopic = "command/catalog";
 constexpr const char *kStatusTopic = "command/status";
 constexpr const char *kAbortTopic = "command/abort";
+constexpr int kCatalogVersion = 1;
 }
 
 RosBridge::RosBridge(QObject *parent)
@@ -48,13 +55,11 @@ RosBridge::RosBridge(QObject *parent)
     refreshTopics();
     setActuatorTopic(_actuatorTopic);   // subscribe to the default MAVROS RCOut topic
 
-    // Mission phase orchestrator: publish run requests, subscribe to live status.
-    // Reliable QoS (default) matches the orchestrator's std_msgs publishers.
+    // Mission phase orchestrator: publish run requests and subscribe to the
+    // onboard MC's dynamic catalog plus live execution status.
     _runPhasePub = _node->create_publisher<std_msgs::msg::Int32>(kRunPhaseTopic, 10);
     _abortPub = _node->create_publisher<std_msgs::msg::Empty>(kAbortTopic, 10);
-    _phaseStatusSub = _node->create_subscription<std_msgs::msg::String>(
-        kStatusTopic, 10,
-        [this](const std_msgs::msg::String::ConstSharedPtr &msg) { _onPhaseStatus(msg); });
+    _subscribePhaseTopics();
 
     qCDebug(RosBridgeLog) << "RosBridge up, node" << kNodeName;
 }
@@ -67,6 +72,7 @@ RosBridge::~RosBridge()
     _imageSub.reset();
     _compressedSub.reset();
     _actuatorSub.reset();
+    _phaseCatalogSub.reset();
     _phaseStatusSub.reset();
     _runPhasePub.reset();
     _abortPub.reset();
@@ -268,23 +274,113 @@ void RosBridge::abortMission()
     qCDebug(RosBridgeLog) << "abortMission (command/abort) published";
 }
 
+void RosBridge::_subscribePhaseTopics()
+{
+    _phaseCatalogSub.reset();
+    _phaseStatusSub.reset();
+
+    // The MC publishes the catalog with transient-local durability. Request the
+    // same QoS so QGC receives the latest catalog even when it starts later.
+    const auto catalogQos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+    _phaseCatalogSub = _node->create_subscription<std_msgs::msg::String>(
+        kCatalogTopic, catalogQos,
+        [this](const std_msgs::msg::String::ConstSharedPtr &msg) { _onPhaseCatalog(msg); });
+    _phaseStatusSub = _node->create_subscription<std_msgs::msg::String>(
+        kStatusTopic, 10,
+        [this](const std_msgs::msg::String::ConstSharedPtr &msg) { _onPhaseStatus(msg); });
+}
+
 void RosBridge::retryPhaseLink()
 {
     if (!_node) {
         return;
     }
-    // Drop and re-create the subscription so DDS re-discovers the orchestrator
-    // (e.g. it was started after QGC). Reflect the reset immediately in the UI.
-    _phaseStatusSub.reset();
-    _phaseStatusSub = _node->create_subscription<std_msgs::msg::String>(
-        kStatusTopic, 10,
-        [this](const std_msgs::msg::String::ConstSharedPtr &msg) { _onPhaseStatus(msg); });
+    // Drop and re-create both subscriptions so DDS re-discovers the onboard MC.
+    _subscribePhaseTopics();
 
     if (_phaseLinkOk) {
         _phaseLinkOk = false;
         emit phaseStatusChanged();
     }
-    qCDebug(RosBridgeLog) << "phase link retry: re-subscribed to" << kStatusTopic;
+    qCDebug(RosBridgeLog) << "phase link retry: re-subscribed to"
+                         << kCatalogTopic << "and" << kStatusTopic;
+}
+
+void RosBridge::_onPhaseCatalog(const std_msgs::msg::String::ConstSharedPtr &msg)
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(msg->data));
+    if (!doc.isObject()) {
+        qCWarning(RosBridgeLog) << "bad command/catalog payload: root is not an object";
+        return;
+    }
+
+    const QJsonObject root = doc.object();
+    if (root.value(QStringLiteral("version")).toInt(-1) != kCatalogVersion) {
+        qCWarning(RosBridgeLog) << "unsupported command/catalog version"
+                                << root.value(QStringLiteral("version"));
+        return;
+    }
+
+    const QJsonValue phasesValue = root.value(QStringLiteral("phases"));
+    if (!phasesValue.isArray()) {
+        qCWarning(RosBridgeLog) << "bad command/catalog payload: phases is not an array";
+        return;
+    }
+
+    QVariantList catalog;
+    QSet<int> phaseIds;
+    for (const QJsonValue &value : phasesValue.toArray()) {
+        if (!value.isObject()) {
+            qCWarning(RosBridgeLog) << "bad command/catalog payload: phase is not an object";
+            return;
+        }
+
+        const QJsonObject phaseObject = value.toObject();
+        const QJsonValue idValue = phaseObject.value(QStringLiteral("id"));
+        const double idNumber = idValue.toDouble(-1.0);
+        if (!idValue.isDouble() || !std::isfinite(idNumber) || std::floor(idNumber) != idNumber
+            || idNumber < 0.0 || idNumber > std::numeric_limits<int>::max()) {
+            qCWarning(RosBridgeLog) << "bad command/catalog phase id" << idValue;
+            return;
+        }
+
+        const int phaseId = static_cast<int>(idNumber);
+        if (phaseIds.contains(phaseId)) {
+            qCWarning(RosBridgeLog) << "duplicate command/catalog phase id" << phaseId;
+            return;
+        }
+
+        const QJsonValue titleValue = phaseObject.value(QStringLiteral("title"));
+        if (!titleValue.isString() || titleValue.toString().trimmed().isEmpty()) {
+            qCWarning(RosBridgeLog) << "bad command/catalog title for phase" << phaseId;
+            return;
+        }
+
+        const QJsonValue descValue = phaseObject.value(QStringLiteral("desc"));
+        if (!descValue.isUndefined() && !descValue.isString()) {
+            qCWarning(RosBridgeLog) << "bad command/catalog description for phase" << phaseId;
+            return;
+        }
+
+        const QJsonValue independentValue = phaseObject.value(QStringLiteral("independent"));
+        if (!independentValue.isUndefined() && !independentValue.isBool()) {
+            qCWarning(RosBridgeLog) << "bad command/catalog independent flag for phase" << phaseId;
+            return;
+        }
+
+        QVariantMap phase;
+        phase.insert(QStringLiteral("id"), phaseId);
+        phase.insert(QStringLiteral("title"), titleValue.toString().trimmed());
+        phase.insert(QStringLiteral("desc"), descValue.toString());
+        phase.insert(QStringLiteral("independent"), independentValue.toBool(true));
+        catalog.append(phase);
+        phaseIds.insert(phaseId);
+    }
+
+    if (_phaseCatalog != catalog) {
+        _phaseCatalog = catalog;
+        emit phaseCatalogChanged();
+    }
 }
 
 void RosBridge::_onPhaseStatus(const std_msgs::msg::String::ConstSharedPtr &msg)

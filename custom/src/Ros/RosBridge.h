@@ -42,10 +42,10 @@ class RosBridge : public QObject
     Q_PROPERTY(QString actuatorTopic READ actuatorTopic WRITE setActuatorTopic NOTIFY actuatorTopicChanged)
     Q_PROPERTY(bool haveActuator READ haveActuator NOTIFY servoChannelsChanged)
     Q_PROPERTY(QVariantList servoChannels READ servoChannels NOTIFY servoChannelsChanged)
-    // Mission phase orchestrator (command/run_phase <-> command/status). The
-    // orchestrator runs command/phaseN.py scripts sequentially and streams live
-    // status here so the mission panel can gate buttons and show progress.
+    // Mission phase orchestrator. The onboard MC publishes its dynamic catalog
+    // and live status; QGC sends independent run requests by catalog id.
     Q_PROPERTY(bool phaseLinkOk READ phaseLinkOk NOTIFY phaseStatusChanged)
+    Q_PROPERTY(QVariantList phaseCatalog READ phaseCatalog NOTIFY phaseCatalogChanged)
     Q_PROPERTY(int phase READ phase NOTIFY phaseStatusChanged)
     Q_PROPERTY(QString phaseState READ phaseState NOTIFY phaseStatusChanged)
     Q_PROPERTY(QString phaseMsg READ phaseMsg NOTIFY phaseStatusChanged)
@@ -67,6 +67,7 @@ public:
     bool haveActuator() const { return _haveActuator; }
     QVariantList servoChannels() const { return _servoChannels; }
     bool phaseLinkOk() const { return _phaseLinkOk; }
+    QVariantList phaseCatalog() const { return _phaseCatalog; }
     int phase() const { return _phase; }
     QString phaseState() const { return _phaseState; }
     QString phaseMsg() const { return _phaseMsg; }
@@ -91,8 +92,8 @@ public slots:
     /// terminates the running phase script and hands the vehicle to the GCS
     /// (the orchestrator switches PX4 to HOLD / hover-in-place).
     Q_INVOKABLE void abortMission();
-    /// Re-create the command/status subscription to force fresh discovery of the
-    /// orchestrator (used by the panel's "retry" button after a link timeout).
+    /// Re-create the command/status and command/catalog subscriptions to force
+    /// fresh discovery of the onboard orchestrator.
     Q_INVOKABLE void retryPhaseLink();
 
 signals:
@@ -105,6 +106,8 @@ signals:
     void servoChannelsChanged();
     /// Emitted when a command/status message arrives or the link goes stale.
     void phaseStatusChanged();
+    /// Emitted when the onboard MC publishes a changed command/catalog.
+    void phaseCatalogChanged();
     /// Emitted (on the GUI thread) each time a frame is decoded.
     void frameReceived(const QImage &image);
 
@@ -114,6 +117,8 @@ private:
     void _onImage(const sensor_msgs::msg::Image::ConstSharedPtr &msg);
     void _onCompressedImage(const sensor_msgs::msg::CompressedImage::ConstSharedPtr &msg);
     void _onActuator(const mavros_msgs::msg::RCOut::ConstSharedPtr &msg);
+    void _subscribePhaseTopics();
+    void _onPhaseCatalog(const std_msgs::msg::String::ConstSharedPtr &msg);
     void _onPhaseStatus(const std_msgs::msg::String::ConstSharedPtr &msg);
 
     bool _rosOk = false;
@@ -123,6 +128,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr _imageSub;
     rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr _compressedSub;
     rclcpp::Subscription<mavros_msgs::msg::RCOut>::SharedPtr _actuatorSub;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _phaseCatalogSub;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _phaseStatusSub;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr _runPhasePub;
     rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr _abortPub;
@@ -141,8 +147,9 @@ private:
     bool _haveActuator = false;
     qint64 _lastActuatorMs = 0;         ///< monotonic ms of last actuator msg
 
-    // Mission phase orchestrator status (parsed from command/status JSON).
+    // Mission phase catalog/status parsed from the onboard orchestrator JSON.
     bool _phaseLinkOk = false;          ///< orchestrator seen recently
+    QVariantList _phaseCatalog;         ///< dynamic id/title/desc entries from MC
     int _phase = -1;
     QString _phaseState = QStringLiteral("idle");
     QString _phaseMsg;
