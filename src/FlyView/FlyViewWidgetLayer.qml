@@ -13,6 +13,7 @@ import QGroundControl.Controls
 import QGroundControl.FlyView
 import QGroundControl.FlightMap
 import QGroundControl.Viewer3D
+import Custom.Widgets
 
 // This is the ui overlay layer for the widgets/tools for Fly View
 Item {
@@ -46,6 +47,14 @@ Item {
 
         const units = fact.units ? " " + fact.units : ""
         return Number(fact.value).toFixed(decimalPlaces) + units
+    }
+
+    function _factTelemetryText(fact, showUnits) {
+        if (!fact) {
+            return qsTr("–")
+        }
+
+        return fact.enumOrValueString + (showUnits && fact.units ? " " + fact.units : "")
     }
 
     function _descentRateText() {
@@ -99,52 +108,73 @@ Item {
         property real rightEdgeCenterInset: rightEdgeTopInset
     }
 
-    Rectangle {
+    MovablePanel {
         id:                     telemetryPanel
-        anchors.left:           parent.left
-        anchors.top:            parent.top
-        width:                  ScreenTools.defaultFontPixelWidth * 19
-        height:                 telemetryColumn.implicitHeight + (_toolsMargin * 2)
-        color:                  Qt.rgba(0.03, 0.08, 0.14, 0.90)
-        radius:                 ScreenTools.defaultFontPixelWidth * 0.6
-        border.color:           Qt.rgba(0.34, 0.59, 0.71, 0.70)
-        border.width:           1
+        x:                      0
+        y:                      0
+        width:                  _defaultWidth
+        height:                 _defaultHeight
+        minWidth:               _defaultWidth * 0.75
+        minHeight:              _defaultHeight
         visible:                _activeVehicle
         z:                      QGroundControl.zOrderWidgets
 
-        ColumnLayout {
-            id:                 telemetryColumn
-            anchors.left:       parent.left
-            anchors.right:      parent.right
-            anchors.top:        parent.top
-            anchors.margins:    _toolsMargin
-            spacing:            ScreenTools.defaultFontPixelHeight * 0.12
+        readonly property real _defaultWidth:  ScreenTools.defaultFontPixelWidth * 19
+        readonly property real _defaultHeight: ScreenTools.defaultFontPixelHeight * 10.5
+        readonly property real _contentScale:  Math.max(
+                                                   0.75,
+                                                   Math.min(
+                                                       2.5,
+                                                       Math.min(width / _defaultWidth,
+                                                                height / _defaultHeight)
+                                                   )
+                                               )
 
-            Repeater {
-                model: [
-                    { label: qsTr("CURRENT"), value: _telemetryText(_primaryBattery ? _primaryBattery.current : null, 1) },
-                    { label: qsTr("ROLL"),    value: _telemetryText(_activeVehicle ? _activeVehicle.roll : null, 1) },
-                    { label: qsTr("PITCH"),   value: _telemetryText(_activeVehicle ? _activeVehicle.pitch : null, 1) },
-                    { label: qsTr("DESCENT"), value: _descentRateText() }
-                ]
+        Rectangle {
+            anchors.fill: parent
+            color:        Qt.rgba(0.03, 0.08, 0.14, 0.90)
+            radius:       ScreenTools.defaultFontPixelWidth * 0.6 * telemetryPanel._contentScale
+            border.color: Qt.rgba(0.34, 0.59, 0.71, 0.70)
+            border.width: 1
+            clip:         true
 
-                RowLayout {
-                    required property var modelData
+            ColumnLayout {
+                anchors.fill:    parent
+                anchors.margins: _toolsMargin * telemetryPanel._contentScale
+                spacing:         ScreenTools.defaultFontPixelHeight * 0.12 * telemetryPanel._contentScale
 
-                    Layout.fillWidth: true
-                    spacing:          ScreenTools.defaultFontPixelWidth * 0.5
+                Repeater {
+                    model: [
+                        { label: qsTr("CURRENT"), value: _telemetryText(_primaryBattery ? _primaryBattery.current : null, 1) },
+                        { label: qsTr("ROLL"),    value: _telemetryText(_activeVehicle ? _activeVehicle.roll : null, 1) },
+                        { label: qsTr("PITCH"),   value: _telemetryText(_activeVehicle ? _activeVehicle.pitch : null, 1) },
+                        { label: qsTr("DESCENT"), value: _descentRateText() },
+                        { label: qsTr("ALT"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.altitudeRelative : null, true) },
+                        { label: qsTr("CLIMB"),   value: _factTelemetryText(_activeVehicle ? _activeVehicle.climbRate : null, true) },
+                        { label: qsTr("G/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.groundSpeed : null, true) },
+                        { label: qsTr("A/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.airSpeed : null, true) },
+                        { label: qsTr("THR"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.throttlePct : null, true) },
+                        { label: qsTr("TIME"),    value: _factTelemetryText(_activeVehicle ? _activeVehicle.flightTime : null, false) }
+                    ]
 
-                    QGCLabel {
+                    RowLayout {
+                        required property var modelData
+
                         Layout.fillWidth: true
-                        text:             modelData.label
-                        color:            "#5796B4"
-                        font.pixelSize:   ScreenTools.defaultFontPixelHeight * 0.62
-                    }
+                        spacing:          ScreenTools.defaultFontPixelWidth * 0.5 * telemetryPanel._contentScale
 
-                    QGCLabel {
-                        text:             modelData.value
-                        color:            "white"
-                        font.pixelSize:   ScreenTools.defaultFontPixelHeight * 0.72
+                        QGCLabel {
+                            Layout.fillWidth: true
+                            text:             modelData.label
+                            color:            "#5796B4"
+                            font.pixelSize:   ScreenTools.defaultFontPixelHeight * 0.62 * telemetryPanel._contentScale
+                        }
+
+                        QGCLabel {
+                            text:             modelData.value
+                            color:            "white"
+                            font.pixelSize:   ScreenTools.defaultFontPixelHeight * 0.72 * telemetryPanel._contentScale
+                        }
                     }
                 }
             }

@@ -42,10 +42,6 @@ Item {
     readonly property color  _falconBlue:   "#1D4ED8"
     readonly property color  _falconMint:   "#5796B4"
 
-    function clamp(value, minimum, maximum) {
-        return Math.max(minimum, Math.min(maximum, value))
-    }
-
     function secondsToHHMMSS(timeS) {
         var sec_num = parseInt(timeS, 10);
         var hours   = Math.floor(sec_num / 3600);
@@ -55,45 +51,6 @@ Item {
         if (minutes < 10) {minutes = "0"+minutes;}
         if (seconds < 10) {seconds = "0"+seconds;}
         return hours+':'+minutes+':'+seconds;
-    }
-
-    function telemetryValue(fact, showUnits) {
-        if (!fact) {
-            return qsTr("–")
-        }
-        return fact.enumOrValueString + (showUnits && fact.units ? " " + fact.units : "")
-    }
-
-    component TelemetryCorner: Column {
-        property var  values: []
-        property real labelFontPixelSize: ScreenTools.defaultFontPixelHeight * 0.6
-        property real valueFontPixelSize: ScreenTools.defaultFontPixelHeight * 0.72
-
-        spacing: ScreenTools.defaultFontPixelHeight * 0.1
-
-        Repeater {
-            model: values
-
-            Row {
-                spacing: ScreenTools.defaultFontPixelWidth * 0.35
-
-                QGCLabel {
-                    anchors.baseline: valueLabel.baseline
-                    text:             modelData.label
-                    color:            _falconMint
-                    font.bold:        false
-                    font.pixelSize:   labelFontPixelSize
-                }
-
-                QGCLabel {
-                    id:               valueLabel
-                    text:             telemetryValue(modelData.fact, modelData.showUnits)
-                    color:            "white"
-                    font.bold:        false
-                    font.pixelSize:   valueFontPixelSize
-                }
-            }
-        }
     }
 
     QGCToolInsets {
@@ -594,66 +551,18 @@ Item {
         }
 
         Item {
-                id:                     flightInfoSection
-                anchors.fill:           parent
+            id:                     flightInfoSection
+            anchors.fill:           parent
 
-                readonly property real _contentMargin:      clamp(Math.min(width, height) * 0.045, 8, 18)
-                readonly property real _infoFontPixelSize:  clamp(width * 0.045, 12, 20)
-                readonly property real _labelFontPixelSize: clamp(width * 0.034, 10, 16)
-                readonly property real _compassSize:        Math.min(width * 0.55, height * 0.60)
+            readonly property real _compassSize: Math.min(width * 0.76, height * 0.65)
 
-                CustomAttitudeWidget {
-                    anchors.centerIn:   parent
-                    size:               flightInfoSection._compassSize
-                    vehicle:            _activeVehicle
-                    showHeading:        true
-                }
-
-                TelemetryCorner {
-                    anchors.left:           parent.left
-                    anchors.top:            parent.top
-                    anchors.margins:        flightInfoSection._contentMargin
-                    labelFontPixelSize:     flightInfoSection._labelFontPixelSize
-                    valueFontPixelSize:     flightInfoSection._infoFontPixelSize
-                    values: [
-                        { label: qsTr("ALT"), fact: _activeVehicle ? _activeVehicle.altitudeRelative : null, showUnits: true }
-                    ]
-                }
-
-                TelemetryCorner {
-                    anchors.right:          parent.right
-                    anchors.top:            parent.top
-                    anchors.margins:        flightInfoSection._contentMargin
-                    labelFontPixelSize:     flightInfoSection._labelFontPixelSize
-                    valueFontPixelSize:     flightInfoSection._infoFontPixelSize
-                    values: [
-                        { label: qsTr("CLIMB"), fact: _activeVehicle ? _activeVehicle.climbRate : null,   showUnits: true },
-                        { label: qsTr("GND"),   fact: _activeVehicle ? _activeVehicle.groundSpeed : null, showUnits: true }
-                    ]
-                }
-
-                TelemetryCorner {
-                    anchors.left:           parent.left
-                    anchors.bottom:         parent.bottom
-                    anchors.margins:        flightInfoSection._contentMargin
-                    labelFontPixelSize:     flightInfoSection._labelFontPixelSize
-                    valueFontPixelSize:     flightInfoSection._infoFontPixelSize
-                    values: [
-                        { label: qsTr("AIR"), fact: _activeVehicle ? _activeVehicle.airSpeed : null,    showUnits: true },
-                        { label: qsTr("THR"), fact: _activeVehicle ? _activeVehicle.throttlePct : null, showUnits: true }
-                    ]
-                }
-
-                TelemetryCorner {
-                    anchors.right:          parent.right
-                    anchors.bottom:         parent.bottom
-                    anchors.margins:        flightInfoSection._contentMargin
-                    labelFontPixelSize:     flightInfoSection._labelFontPixelSize
-                    valueFontPixelSize:     flightInfoSection._infoFontPixelSize
-                    values: [
-                        { label: qsTr("TIME"), fact: _activeVehicle ? _activeVehicle.flightTime : null, showUnits: false }
-                    ]
-                }
+            CustomAttitudeWidget {
+                anchors.centerIn:            parent
+                anchors.verticalCenterOffset: parent.height * 0.07
+                size:                        flightInfoSection._compassSize
+                vehicle:                     _activeVehicle
+                showHeading:                 true
+            }
         }
     }
 
