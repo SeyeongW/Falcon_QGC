@@ -11,8 +11,11 @@ import QGroundControl.AnalyzeView
 AnalyzePage {
     id: root
 
+    readonly property var competitionColumnWidths: [90, 90, 150, 125, 125, 100, 90, 90, 90, 90, 90, 90]
+    readonly property real competitionTableWidth: 1220
+
     pageComponent: pageComponent
-    pageDescription: qsTr("Convert a PX4 ULog into the 10 Hz LLA ASCII format required for competition flight-data submission.")
+    pageDescription: qsTr("Export a selected ARM-to-DISARM range as the competition 10 Hz, 12-column ASCII format using GPST and MSL altitude.")
     allowPopout: true
 
     Component {
@@ -81,8 +84,61 @@ AnalyzePage {
 
             Rectangle {
                 Layout.fillWidth: true
+                Layout.preferredHeight: rangeLayout.implicitHeight + ScreenTools.defaultFontPixelHeight
+                visible: controller.armEvents.length > 0 || controller.disarmEvents.length > 0
+                color: qgcPal.windowShade
+                radius: ScreenTools.defaultFontPixelWidth * 0.5
+
+                ColumnLayout {
+                    id: rangeLayout
+                    anchors.fill: parent
+                    anchors.margins: ScreenTools.defaultFontPixelHeight * 0.5
+                    spacing: ScreenTools.defaultFontPixelHeight * 0.4
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 4
+                        columnSpacing: ScreenTools.defaultFontPixelWidth
+
+                        QGCLabel {
+                            text: qsTr("Start ARM")
+                            font.bold: true
+                        }
+
+                        QGCComboBox {
+                            Layout.fillWidth: true
+                            model: controller.armEvents
+                            textRole: "label"
+                            currentIndex: controller.selectedArmIndex
+                            onActivated: (index) => controller.selectedArmIndex = index
+                        }
+
+                        QGCLabel {
+                            text: qsTr("End DISARM")
+                            font.bold: true
+                        }
+
+                        QGCComboBox {
+                            Layout.fillWidth: true
+                            model: controller.disarmEvents
+                            textRole: "label"
+                            currentIndex: controller.selectedDisarmIndex
+                            onActivated: (index) => controller.selectedDisarmIndex = index
+                        }
+                    }
+
+                    QGCLabel {
+                        Layout.fillWidth: true
+                        text: qsTr("Everything between these two boundaries is exported, regardless of intermediate ARM/DISARM cycles.")
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
                 Layout.preferredHeight: summaryGrid.implicitHeight + ScreenTools.defaultFontPixelHeight
-                visible: controller.ready
+                visible: controller.armEvents.length > 0
                 color: qgcPal.windowShade
                 radius: ScreenTools.defaultFontPixelWidth * 0.5
 
@@ -96,6 +152,11 @@ AnalyzePage {
 
                     QGCLabel { text: qsTr("GPS source"); font.bold: true }
                     QGCLabel { text: controller.gpsSource }
+                    QGCLabel { text: qsTr("IMU source"); font.bold: true }
+                    QGCLabel { text: controller.imuSource }
+
+                    QGCLabel { text: qsTr("Attitude source"); font.bold: true }
+                    QGCLabel { text: controller.attitudeSource }
                     QGCLabel { text: qsTr("Source rate"); font.bold: true }
                     QGCLabel { text: qsTr("%1 Hz").arg(controller.sourceRateHz.toFixed(2)) }
 
@@ -128,58 +189,81 @@ AnalyzePage {
                 border.color: qgcPal.text
                 border.width: 1
 
-                ColumnLayout {
+                Flickable {
                     anchors.fill: parent
                     anchors.margins: ScreenTools.defaultFontPixelWidth
-                    spacing: 0
+                    contentWidth: root.competitionTableWidth
+                    contentHeight: height
+                    flickableDirection: Flickable.HorizontalFlick
+                    clip: true
 
-                    RowLayout {
-                        Layout.fillWidth: true
+                    ScrollBar.horizontal: ScrollBar {}
 
-                        Repeater {
-                            model: [qsTr("Auto"), qsTr("Waypoint"), qsTr("GPS TOW"),
-                                    qsTr("Latitude"), qsTr("Longitude"), qsTr("Altitude")]
+                    Column {
+                        id: previewTable
+                        width: root.competitionTableWidth
+                        height: parent.height
+                        spacing: 0
 
-                            QGCLabel {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 1
-                                text: modelData
-                                font.bold: true
-                                horizontalAlignment: Text.AlignHCenter
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 1
-                        color: qgcPal.text
-                    }
-
-                    ListView {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        model: controller.previewRows
-
-                        delegate: RowLayout {
-                            id: previewRow
-
-                            required property var modelData
-                            width: ListView.view.width
+                        Row {
+                            width: parent.width
+                            height: ScreenTools.defaultFontPixelHeight * 2
 
                             Repeater {
-                                model: [previewRow.modelData.automatic, previewRow.modelData.waypoint,
-                                        previewRow.modelData.gpsTime, previewRow.modelData.latitude,
-                                        previewRow.modelData.longitude, previewRow.modelData.altitude]
+                                model: [qsTr("Auto"), qsTr("Event"), qsTr("GPST"),
+                                        qsTr("Latitude"), qsTr("Longitude"), qsTr("Altitude MSL"),
+                                        qsTr("Ax"), qsTr("Ay"), qsTr("Az"),
+                                        qsTr("Roll"), qsTr("Pitch"), qsTr("Yaw")]
 
                                 QGCLabel {
+                                    required property int index
                                     required property var modelData
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: 1
+                                    width: root.competitionColumnWidths[index]
+                                    height: parent.height
                                     text: modelData
+                                    font.bold: true
                                     horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: parent.width
+                            height: 1
+                            color: qgcPal.text
+                        }
+
+                        ListView {
+                            width: parent.width
+                            height: parent.height - y
+                            clip: true
+                            model: controller.previewRows
+
+                            delegate: Row {
+                                id: previewRow
+
+                                required property var modelData
+                                width: ListView.view.width
+                                height: ScreenTools.defaultFontPixelHeight * 1.8
+
+                                Repeater {
+                                    model: [previewRow.modelData.automatic, previewRow.modelData.event,
+                                            previewRow.modelData.gpst, previewRow.modelData.latitude,
+                                            previewRow.modelData.longitude, previewRow.modelData.altitude,
+                                            previewRow.modelData.ax, previewRow.modelData.ay,
+                                            previewRow.modelData.az, previewRow.modelData.roll,
+                                            previewRow.modelData.pitch, previewRow.modelData.yaw]
+
+                                    QGCLabel {
+                                        required property int index
+                                        required property var modelData
+                                        width: root.competitionColumnWidths[index]
+                                        height: parent.height
+                                        text: modelData
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
                                 }
                             }
                         }
@@ -199,8 +283,8 @@ AnalyzePage {
                 id: saveDialog
                 title: qsTr("Save Competition Data")
                 folder: QGroundControl.settingsManager.appSettings.logSavePath
-                nameFilters: [qsTr("ASCII CSV Files (*.csv)")]
-                defaultSuffix: "csv"
+                nameFilters: [qsTr("ASCII Text Files (*.txt *.asc)")]
+                defaultSuffix: "txt"
                 onAcceptedForSave: (file) => controller.exportAscii(file)
             }
 

@@ -70,6 +70,16 @@ std::vector<uint8_t> makePayload64Float(uint64_t ts, float value)
     return buf;
 }
 
+std::vector<uint8_t> makePayload64Float3(uint64_t ts, float x, float y, float z)
+{
+    std::vector<uint8_t> buf(20);
+    memcpy(buf.data(),      &ts, 8);
+    memcpy(buf.data() + 8,  &x,  4);
+    memcpy(buf.data() + 12, &y,  4);
+    memcpy(buf.data() + 16, &z,  4);
+    return buf;
+}
+
 std::vector<uint8_t> makePayload64Int32(uint64_t ts, int32_t value)
 {
     std::vector<uint8_t> buf(12);
@@ -124,6 +134,43 @@ void LogFileParserTest::_parseULogNumericTopicTest()
     QVERIFY(qAbs(samples[0].toPointF().y() - 0.1) < 1e-5);
     QVERIFY(qAbs(samples[1].toPointF().x() - 1.0) < 1e-5);
     QVERIFY(qAbs(samples[1].toPointF().y() - 0.2) < 1e-5);
+}
+
+void LogFileParserTest::_parseULogNumericArrayTest()
+{
+    const QByteArray bytes = buildULog(
+        [](ulog_cpp::Writer &w) {
+            w.messageFormat(ulog_cpp::MessageFormat{
+                "sensor_combined",
+                {ulog_cpp::Field{"uint64_t", "timestamp"},
+                 ulog_cpp::Field{"float[3]", "accelerometer_m_s2"}}
+            });
+        },
+        [](ulog_cpp::Writer &w) {
+            w.addLoggedMessage(ulog_cpp::AddLoggedMessage{0, 1, "sensor_combined"});
+            w.data(ulog_cpp::Data{1, makePayload64Float3(500000ULL, 1.25f, -2.5f, 9.81f)});
+        });
+
+    QTemporaryFile tmp;
+    tmp.setFileTemplate(QDir::tempPath() + QStringLiteral("/logtest_XXXXXX.ulg"));
+    QVERIFY(writeTempFile(tmp, bytes));
+
+    LogFileParser parser;
+    QVERIFY(parser.parseFile(tmp.fileName()));
+
+    const QStringList fields = {
+        QStringLiteral("sensor_combined.accelerometer_m_s2[0]"),
+        QStringLiteral("sensor_combined.accelerometer_m_s2[1]"),
+        QStringLiteral("sensor_combined.accelerometer_m_s2[2]"),
+    };
+    const double expected[] = {1.25, -2.5, 9.81};
+    for (int index = 0; index < fields.size(); ++index) {
+        QVERIFY(parser.availableFields().contains(fields[index]));
+        QVERIFY(parser.plottableFields().contains(fields[index]));
+        const QVariantList samples = parser.fieldSamples(fields[index]);
+        QCOMPARE(samples.size(), 1);
+        QVERIFY(qAbs(samples.constFirst().toPointF().y() - expected[index]) < 1e-5);
+    }
 }
 
 void LogFileParserTest::_parseULogParameterTest()

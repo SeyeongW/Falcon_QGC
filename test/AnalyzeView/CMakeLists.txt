@@ -25,6 +25,8 @@ target_sources(${CMAKE_PROJECT_NAME}
         MavlinkLogTest.h
         APMDataFlashLogParserTest.cc
         APMDataFlashLogParserTest.h
+        CompetitionDataControllerTest.cc
+        CompetitionDataControllerTest.h
         LogFileParserTest.cc
         LogFileParserTest.h
 )
@@ -40,4 +42,5 @@ add_qgc_test(MAVLinkMessageTest LABELS Unit AnalyzeView)
 add_qgc_test(MAVLinkSystemTest LABELS Unit AnalyzeView)
 add_qgc_test(MavlinkLogTest LABELS Integration AnalyzeView Vehicle)
 add_qgc_test(APMDataFlashLogParserTest LABELS Unit AnalyzeView)
+add_qgc_test(CompetitionDataControllerTest LABELS Unit AnalyzeView)
 add_qgc_test(LogFileParserTest LABELS Unit AnalyzeView)
