@@ -98,17 +98,70 @@ class OrchestratorActionsTest(unittest.TestCase):
         self.assertFalse(self.node._gripper_busy)
         self.assertEqual(self.node._action_msg, "gripper_open.py 없음")
 
-    def test_successful_gripper_action_updates_state(self):
-        script = self._write_script(orchestrator.GRIPPER_SCRIPTS["open"])
-        process = FakeProcess(returncode=0)
-        self.node._gripper_busy = True
+    def test_gripper_action_starts_without_waiting_for_completion(self):
+        self._write_script(orchestrator.GRIPPER_SCRIPTS["open"])
+        process = FakeProcess()
 
-        with patch.object(orchestrator.subprocess, "Popen", return_value=process):
-            self.node._run_gripper("open", str(script))
+        with (
+            patch.object(orchestrator.subprocess, "Popen", return_value=process),
+            patch.object(orchestrator.threading, "Thread") as thread,
+        ):
+            self.node._start_gripper("open")
 
+        self.assertIs(self.node._gripper_proc, process)
         self.assertFalse(self.node._gripper_busy)
         self.assertEqual(self.node._gripper_state, "open")
+        self.assertEqual(self.node._action_msg, "Gripper Open 실행 중")
+        thread.return_value.start.assert_called_once()
+
+    def test_new_gripper_action_supersedes_running_action(self):
+        self._write_script(orchestrator.GRIPPER_SCRIPTS["open"])
+        self._write_script(orchestrator.GRIPPER_SCRIPTS["close"])
+        open_process = FakeProcess()
+        close_process = FakeProcess()
+
+        with (
+            patch.object(
+                orchestrator.subprocess,
+                "Popen",
+                side_effect=[open_process, close_process],
+            ),
+            patch.object(orchestrator.threading, "Thread"),
+        ):
+            self.node._start_gripper("open")
+            self.node._start_gripper("close")
+
+        self.assertTrue(open_process.terminated)
+        self.assertIs(self.node._gripper_proc, close_process)
+        self.assertFalse(self.node._gripper_busy)
+        self.assertEqual(self.node._gripper_state, "close")
+        self.assertEqual(self.node._action_msg, "Gripper Close 실행 중")
+
+    def test_successful_current_gripper_action_updates_state(self):
+        process = FakeProcess(returncode=0)
+        self.node._gripper_proc = process
+        self.node._gripper_busy = True
+
+        self.node._monitor_gripper("open", process)
+
+        self.assertFalse(self.node._gripper_busy)
+        self.assertIsNone(self.node._gripper_proc)
         self.assertEqual(self.node._action_msg, "Gripper Open 완료")
+
+    def test_superseded_gripper_exit_does_not_overwrite_new_action(self):
+        old_process = FakeProcess(returncode=-15)
+        current_process = FakeProcess()
+        self.node._gripper_proc = current_process
+        self.node._gripper_busy = True
+        self.node._gripper_state = "close"
+        self.node._action_msg = "Gripper Close 실행 중"
+
+        self.node._monitor_gripper("open", old_process)
+
+        self.assertIs(self.node._gripper_proc, current_process)
+        self.assertTrue(self.node._gripper_busy)
+        self.assertEqual(self.node._gripper_state, "close")
+        self.assertEqual(self.node._action_msg, "Gripper Close 실행 중")
 
 
 if __name__ == "__main__":

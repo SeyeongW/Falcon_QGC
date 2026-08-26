@@ -226,13 +226,13 @@ Rectangle {
 
             QGCButton {
                 text: qsTr("Gripper Open")
-                enabled: root._linkOk && RosBridge.gripperOpenAvailable && !RosBridge.gripperBusy
+                enabled: root._linkOk && RosBridge.gripperOpenAvailable
                 onClicked: RosBridge.runGripper("open")
             }
 
             QGCButton {
                 text: qsTr("Gripper Close")
-                enabled: root._linkOk && RosBridge.gripperCloseAvailable && !RosBridge.gripperBusy
+                enabled: root._linkOk && RosBridge.gripperCloseAvailable
                 onClicked: RosBridge.runGripper("close")
             }
 

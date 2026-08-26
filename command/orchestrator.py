@@ -601,11 +601,6 @@ class PhaseOrchestrator(Node):
         self._republish()
 
     def _start_gripper(self, action):
-        if self._gripper_busy:
-            self._action_msg = "Gripper 동작 중 — 완료 후 다시 시도하세요"
-            self._republish()
-            return
-
         script_name = GRIPPER_SCRIPTS[action]
         script = self._action_script_path(script_name)
         if not os.path.isfile(script):
@@ -614,32 +609,70 @@ class PhaseOrchestrator(Node):
             self._republish()
             return
 
-        self._gripper_busy = True
-        self._action_msg = f"Gripper {action.title()} 실행 중"
-        self._republish()
-        threading.Thread(
-            target=self._run_gripper,
-            args=(action, script),
-            daemon=True,
-        ).start()
+        # Gripper scripts may intentionally stay alive to keep applying force.
+        # A new click must therefore supersede the previous command instead of
+        # waiting for that process to exit. Stop the previous publisher first so
+        # opposing open/close commands cannot fight each other, then launch the
+        # newly requested action immediately.
+        previous_proc = self._gripper_proc
+        if previous_proc is not None and previous_proc.poll() is None:
+            # Detach it before sending SIGTERM so its monitor thread cannot
+            # briefly publish a failure over the replacement command.
+            self._gripper_proc = None
+            self._gripper_busy = False
+            previous_proc.terminate()
+            threading.Thread(
+                target=self._kill_after,
+                args=(previous_proc, 2.0),
+                daemon=True,
+            ).start()
 
-    def _run_gripper(self, action, script):
         try:
-            self._gripper_proc = subprocess.Popen(
+            proc = subprocess.Popen(
                 [sys.executable, script],
                 cwd=COMMAND_DIR,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
-            output, _ = self._gripper_proc.communicate()
-            rc = self._gripper_proc.returncode
         except Exception as exc:  # noqa: BLE001
+            self._gripper_proc = None
+            self._gripper_busy = False
+            self._action_msg = f"Gripper {action.title()} 실행 실패: {exc}"
+            self.get_logger().error(self._action_msg)
+            self._republish()
+            return
+
+        self._gripper_proc = proc
+        # This process may stay alive to hold force, but it never blocks a new
+        # open/close request: the next click replaces it. Keep the protocol's
+        # busy flag false so older FGC builds also leave both buttons enabled.
+        self._gripper_busy = False
+        self._gripper_state = action
+        self._action_msg = f"Gripper {action.title()} 실행 중"
+        self.get_logger().info(self._action_msg)
+        self._republish()
+        threading.Thread(
+            target=self._monitor_gripper,
+            args=(action, proc),
+            daemon=True,
+        ).start()
+
+    def _monitor_gripper(self, action, proc):
+        try:
+            output, _ = proc.communicate()
+            rc = proc.returncode
+        except Exception as exc:  # noqa: BLE001
+            # A superseded process must not overwrite the state of the newer
+            # command that replaced it.
+            if self._gripper_proc is not proc:
+                return
             self._action_msg = f"Gripper {action.title()} 실행 실패: {exc}"
             self.get_logger().error(self._action_msg)
         else:
+            if self._gripper_proc is not proc:
+                return
             if rc == 0:
-                self._gripper_state = action
                 self._action_msg = f"Gripper {action.title()} 완료"
                 self.get_logger().info(self._action_msg)
             else:
@@ -649,7 +682,8 @@ class PhaseOrchestrator(Node):
                     + (f" — {detail}" if detail else "")
                 )
                 self.get_logger().error(self._action_msg)
-        finally:
+
+        if self._gripper_proc is proc:
             self._gripper_proc = None
             self._gripper_busy = False
             self._republish()
