@@ -30,24 +30,21 @@ CustomFlyViewOptions::CustomFlyViewOptions(CustomOptions* options, QObject* pare
     qCDebug(CustomLog) << this;
 }
 
-CustomOptions::CustomOptions(CustomPlugin *plugin, QObject *parent)
+CustomOptions::CustomOptions(QObject *parent)
     : QGCOptions(parent)
-    , _plugin(plugin)
     , _flyViewOptions(new CustomFlyViewOptions(this, this))
 {
-    Q_CHECK_PTR(_plugin);
 }
 
 /*===========================================================================*/
 
 CustomPlugin::CustomPlugin(QObject *parent)
     : QGCCorePlugin(parent)
-    , _options(new CustomOptions(this, this))
+    , _options(new CustomOptions(this))
 {
     qCDebug(CustomLog) << this;
 
     _showAdvancedUI = false;
-    (void) connect(this, &QGCCorePlugin::showAdvancedUIChanged, this, &CustomPlugin::_advancedChanged);
 }
 
 QGCCorePlugin *CustomPlugin::instance()
@@ -62,12 +59,6 @@ void CustomPlugin::cleanup()
     }
 
     delete _selector;
-}
-
-void CustomPlugin::_advancedChanged(bool changed)
-{
-    // Firmware Upgrade page is only show in Advanced mode
-    emit _options->showFirmwareUpgradeChanged(changed);
 }
 
 void CustomPlugin::_addSettingsEntry(const QString &title, const char *qmlFile, const char *iconFile)
