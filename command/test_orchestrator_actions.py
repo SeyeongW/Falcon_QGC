@@ -45,6 +45,8 @@ class OrchestratorActionsTest(unittest.TestCase):
         self.node._gripper_proc = None
         self.node._gripper_busy = False
         self.node._gripper_state = "unknown"
+        self.node._failsafe_proc = None
+        self.node._running = None
         self.node._action_msg = ""
         self.node._republish = Mock()
         self.node.get_logger = Mock(return_value=Mock())
@@ -75,6 +77,7 @@ class OrchestratorActionsTest(unittest.TestCase):
         self.assertFalse(status["camera_running"])
         self.assertFalse(status["gripper_open_available"])
         self.assertTrue(status["gripper_close_available"])
+        self.assertFalse(status["failsafe_available"])
 
     def test_camera_start_and_stop_tracks_process(self):
         self._write_script(orchestrator.CAMERA_SCRIPT)
@@ -109,7 +112,7 @@ class OrchestratorActionsTest(unittest.TestCase):
             self.node._start_gripper("open")
 
         self.assertIs(self.node._gripper_proc, process)
-        self.assertFalse(self.node._gripper_busy)
+        self.assertTrue(self.node._gripper_busy)
         self.assertEqual(self.node._gripper_state, "open")
         self.assertEqual(self.node._action_msg, "Gripper Open 실행 중")
         thread.return_value.start.assert_called_once()
@@ -133,9 +136,64 @@ class OrchestratorActionsTest(unittest.TestCase):
 
         self.assertTrue(open_process.terminated)
         self.assertIs(self.node._gripper_proc, close_process)
-        self.assertFalse(self.node._gripper_busy)
+        self.assertTrue(self.node._gripper_busy)
         self.assertEqual(self.node._gripper_state, "close")
         self.assertEqual(self.node._action_msg, "Gripper Close 실행 중")
+
+    def test_gripper_stop_terminates_running_close(self):
+        process = FakeProcess()
+        self.node._gripper_proc = process
+        self.node._gripper_busy = True
+        self.node._gripper_state = "close"
+
+        with patch.object(orchestrator.threading, "Thread") as thread:
+            self.node._stop_gripper()
+
+        self.assertTrue(process.terminated)
+        self.assertIsNone(self.node._gripper_proc)
+        self.assertFalse(self.node._gripper_busy)
+        self.assertEqual(self.node._gripper_state, "stopped")
+        self.assertEqual(self.node._action_msg, "Gripper Close 종료")
+        thread.return_value.start.assert_called_once()
+
+    def test_gripper_stop_when_idle_is_safe(self):
+        self.node._stop_gripper()
+
+        self.assertIsNone(self.node._gripper_proc)
+        self.assertFalse(self.node._gripper_busy)
+        self.assertEqual(self.node._gripper_state, "stopped")
+        self.assertEqual(self.node._action_msg, "Gripper가 이미 정지 상태입니다")
+
+    def test_gripper_stop_command_is_routed(self):
+        message = Mock(data="gripper:stop")
+
+        with patch.object(self.node, "_stop_gripper") as stop_gripper:
+            self.node._on_run_action(message)
+
+        stop_gripper.assert_called_once_with()
+
+    def test_failsafe_is_only_available_during_phase_two_or_four(self):
+        self._write_script(orchestrator.FAILSAFE_SCRIPT)
+
+        self.node._start_failsafe()
+
+        self.assertIsNone(self.node._failsafe_proc)
+        self.assertIn("Phase 2 또는 Phase 4", self.node._action_msg)
+
+    def test_failsafe_button_command_runs_script_during_phase_two(self):
+        self._write_script(orchestrator.FAILSAFE_SCRIPT)
+        self.node._running = 2
+        process = FakeProcess()
+
+        with (
+            patch.object(orchestrator.subprocess, "Popen", return_value=process),
+            patch.object(orchestrator.threading, "Thread") as thread,
+        ):
+            self.node._on_run_action(Mock(data="failsafe:run"))
+
+        self.assertIs(self.node._failsafe_proc, process)
+        self.assertEqual(self.node._action_msg, "Failsafe 실행 중")
+        thread.return_value.start.assert_called_once_with()
 
     def test_successful_current_gripper_action_updates_state(self):
         process = FakeProcess(returncode=0)

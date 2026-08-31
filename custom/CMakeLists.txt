@@ -57,6 +57,30 @@ set(QML_IMPORT_PATH ${QML_IMPORT_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/res" CACHE S
 # Custom QML Module
 # ============================================================================
 
+option(QGC_ENABLE_CESIUM "Enable the CesiumJS mission route view when Qt WebEngine is available" ON)
+set(QGC_CESIUM_ION_TOKEN "" CACHE STRING "Cesium ion token embedded in desktop packages")
+mark_as_advanced(QGC_CESIUM_ION_TOKEN)
+
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/CustomCesiumConfig.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/CustomCesiumConfig.h
+    @ONLY
+)
+
+set(QGC_CESIUM_AVAILABLE OFF)
+if(QGC_ENABLE_CESIUM AND NOT ANDROID AND NOT IOS)
+    find_package(Qt6 QUIET COMPONENTS WebChannel WebEngineQuick)
+    if(TARGET Qt6::WebChannel AND TARGET Qt6::WebEngineQuick)
+        set(QGC_CESIUM_AVAILABLE ON)
+        message(STATUS "QGC: CesiumJS mission route view enabled")
+    else()
+        message(WARNING
+            "QGC: Qt WebChannel/WebEngineQuick are not available. "
+            "The classic mission route view will be used instead."
+        )
+    endif()
+endif()
+
 qt_add_library(CustomModule STATIC)
 
 # The ROS video panel imports Custom.Ros, so it is only part of the module when
@@ -70,6 +94,20 @@ if(QGC_ENABLE_ROS)
     )
 endif()
 
+set(CUSTOM_CESIUM_QML_FILES "")
+set(CUSTOM_CESIUM_RESOURCES "")
+set(CUSTOM_CESIUM_QML_IMPORTS "")
+if(QGC_CESIUM_AVAILABLE)
+    set(CUSTOM_CESIUM_QML_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CesiumRoute3DView.qml
+    )
+    set(CUSTOM_CESIUM_RESOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/Cesium/cesium_route.html
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/Cesium/cesium_route.js
+    )
+    set(CUSTOM_CESIUM_QML_IMPORTS QtWebChannel QtWebEngine)
+endif()
+
 # Set resource aliases for custom widgets
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomArtificialHorizon.qml PROPERTIES QT_RESOURCE_ALIAS CustomArtificialHorizon.qml)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/Falcon_aircraft.qml PROPERTIES QT_RESOURCE_ALIAS FalconAircraft.qml)
@@ -79,9 +117,14 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_001_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_B_001_mesh.mesh)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_002_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_B_002_mesh.mesh)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_mesh.mesh PROPERTIES QT_RESOURCE_ALIAS meshes/epp1045_B_mesh.mesh)
+if(QGC_CESIUM_AVAILABLE)
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/Cesium/cesium_route.html PROPERTIES QT_RESOURCE_ALIAS Cesium/cesium_route.html)
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/Cesium/cesium_route.js PROPERTIES QT_RESOURCE_ALIAS Cesium/cesium_route.js)
+endif()
 qgc_set_qt_resource_alias(
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ControlSurfaceWidget.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomAttitudeWidget.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/FalconPfdWidget.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomIconButton.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomOnOffSwitch.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomQuickButton.qml
@@ -91,7 +134,11 @@ qgc_set_qt_resource_alias(
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRoute3DView.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRouteView.qml
     ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MovablePanel.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/PfdAttitudeView.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/PfdHeadingArc.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/PfdValueTape.qml
     ${CUSTOM_ROS_QML_FILES}
+    ${CUSTOM_CESIUM_QML_FILES}
 )
 
 qt_add_qml_module(CustomModule
@@ -101,10 +148,12 @@ qt_add_qml_module(CustomModule
     IMPORTS
         QtQuick
         QtQuick3D
+        ${CUSTOM_CESIUM_QML_IMPORTS}
     QML_FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/ControlSurfaceWidget.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomArtificialHorizon.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomAttitudeWidget.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/FalconPfdWidget.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomIconButton.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomOnOffSwitch.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/CustomQuickButton.qml
@@ -115,7 +164,11 @@ qt_add_qml_module(CustomModule
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRoute3DView.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MissionRouteView.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/MovablePanel.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/PfdAttitudeView.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/PfdHeadingArc.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/Custom/Widgets/PfdValueTape.qml
         ${CUSTOM_ROS_QML_FILES}
+        ${CUSTOM_CESIUM_QML_FILES}
     RESOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/aircraft_Body_mesh.mesh
         ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_A_001_mesh.mesh
@@ -123,10 +176,59 @@ qt_add_qml_module(CustomModule
         ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_001_mesh.mesh
         ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_002_mesh.mesh
         ${CMAKE_CURRENT_SOURCE_DIR}/res/3D/Falcon/generated/meshes/epp1045_B_mesh.mesh
+        ${CUSTOM_CESIUM_RESOURCES}
     NO_PLUGIN
 )
 
 target_link_libraries(CustomModule PRIVATE Qt6::Quick3D)
+if(QGC_CESIUM_AVAILABLE)
+    target_link_libraries(CustomModule PRIVATE Qt6::WebChannel Qt6::WebEngineQuick)
+endif()
+
+# The main executable's deployment scan does not inspect imports hidden inside
+# this static QML module. Install the two runtime QML plugins explicitly so an
+# AppImage can create WebEngineView and QWebChannel without a local Qt SDK.
+if(QGC_CESIUM_AVAILABLE AND LINUX AND NOT ANDROID)
+    function(qgc_cesium_imported_location imported_target output_variable)
+        get_target_property(_imported_configs ${imported_target} IMPORTED_CONFIGURATIONS)
+        foreach(_config IN LISTS _imported_configs)
+            get_target_property(_imported_path ${imported_target} IMPORTED_LOCATION_${_config})
+            if(_imported_path)
+                break()
+            endif()
+        endforeach()
+
+        if(NOT _imported_path)
+            message(FATAL_ERROR "QGC: Could not locate imported target ${imported_target}")
+        endif()
+
+        set(${output_variable} "${_imported_path}" PARENT_SCOPE)
+    endfunction()
+
+    function(qgc_install_cesium_qml_module plugin_target module_name)
+        qgc_cesium_imported_location(${plugin_target} _plugin_path)
+
+        cmake_path(GET _plugin_path PARENT_PATH _module_source_dir)
+        install(
+            DIRECTORY "${_module_source_dir}/"
+            DESTINATION "qml/${module_name}"
+        )
+    endfunction()
+
+    qgc_install_cesium_qml_module(Qt6::WebChannelQuickplugin QtWebChannel)
+    qgc_install_cesium_qml_module(Qt6::qtwebenginequickplugin QtWebEngine)
+
+    qgc_cesium_imported_location(
+        Qt6::WebEngineQuickDelegatesQml
+        _webengine_delegates_library
+    )
+    cmake_path(GET _webengine_delegates_library PARENT_PATH _qt_library_dir)
+    install(
+        DIRECTORY "${_qt_library_dir}/"
+        DESTINATION lib
+        FILES_MATCHING PATTERN "libQt6WebEngineQuickDelegatesQml.so*"
+    )
+endif()
 
 # ============================================================================
 # Custom Plan Module (PerimeterScan map visual + editor)
@@ -251,17 +353,28 @@ if(QGC_ENABLE_ROS)
     set(CUSTOM_ROS_DEFINITIONS QGC_ENABLE_ROS)
 endif()
 
+set(CUSTOM_CESIUM_LIBRARIES "")
+set(CUSTOM_CESIUM_DEFINITIONS "")
+set(CUSTOM_CESIUM_QT_COMPONENTS "")
+if(QGC_CESIUM_AVAILABLE)
+    set(CUSTOM_CESIUM_LIBRARIES Qt6::WebChannel Qt6::WebEngineQuick)
+    set(CUSTOM_CESIUM_DEFINITIONS QGC_ENABLE_CESIUM)
+    set(CUSTOM_CESIUM_QT_COMPONENTS WebChannel WebEngineQuick)
+endif()
+
 # Custom libraries to link
 set(CUSTOM_LIBRARIES
     CustomModule
     CustomPlanModule
     ${CUSTOM_ROS_LIBRARIES}
+    ${CUSTOM_CESIUM_LIBRARIES}
     CACHE INTERNAL "" FORCE
 )
 
 # Custom include directories
 set(CUSTOM_INCLUDE_DIRECTORIES
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/AutoPilotPlugin
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FirmwarePlugin
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MissionManager
@@ -276,6 +389,7 @@ set(CUSTOM_DEFINITIONS
     CUSTOMHEADER="CustomPlugin.h"
     CUSTOMCLASS=CustomPlugin
     ${CUSTOM_ROS_DEFINITIONS}
+    ${CUSTOM_CESIUM_DEFINITIONS}
     CACHE INTERNAL "" FORCE
 )
 
@@ -283,5 +397,6 @@ set(CUSTOM_DEFINITIONS
 set(CUSTOM_QT_COMPONENTS
     Core
     Positioning
+    ${CUSTOM_CESIUM_QT_COMPONENTS}
     CACHE INTERNAL "" FORCE
 )

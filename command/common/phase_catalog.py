@@ -11,7 +11,8 @@ from pathlib import Path
 CATALOG_FILE_NAME = "phases.json"
 CATALOG_VERSION = 1
 _NUMBERED_PHASE_RE = re.compile(r"^phase(\d+)\.py$")
-_VALID_CONFIRMATIONS = {"none", "ok", "ok_again"}
+_VALID_CONFIRMATIONS = {"none", "ok", "ok_again", "land"}
+_VALID_START_ACTIONS = {"run_script", "start_mission"}
 _VALID_ON_OK_ACTIONS = {"complete", "start_mission"}
 _VALID_CONFIRM_AFTER = {"process_exit", "landed"}
 _VALID_READY_ACTIONS = {"none", "land"}
@@ -30,6 +31,7 @@ class PhaseDefinition:
     description: str
     script: str
     script_path: Path
+    start_action: str
     confirmation: str
     on_ok: str
     available: bool
@@ -46,6 +48,7 @@ class PhaseDefinition:
             "desc": self.description,
             "script": self.script,
             "independent": True,
+            "start_action": self.start_action,
             "confirmation": self.confirmation,
             "on_ok": self.on_ok,
             "available": self.available,
@@ -123,6 +126,7 @@ def _definition_from_entry(command_dir, entry):
     )
     title = entry.get("title", f"Phase {phase_id}")
     description = entry.get("description", script)
+    start_action = entry.get("start_action", "run_script")
     confirmation = entry.get("confirmation", "none")
     on_ok = entry.get("on_ok", "complete")
     confirm_after = entry.get("confirm_after", "process_exit")
@@ -132,6 +136,10 @@ def _definition_from_entry(command_dir, entry):
         raise CatalogError(f"Phase {phase_id} title이 올바르지 않습니다")
     if not isinstance(description, str):
         raise CatalogError(f"Phase {phase_id} description이 올바르지 않습니다")
+    if start_action not in _VALID_START_ACTIONS:
+        raise CatalogError(
+            f"Phase {phase_id} start_action이 올바르지 않습니다: {start_action}"
+        )
     if confirmation not in _VALID_CONFIRMATIONS:
         raise CatalogError(
             f"Phase {phase_id} confirmation이 올바르지 않습니다: {confirmation}"
@@ -143,6 +151,14 @@ def _definition_from_entry(command_dir, entry):
     if confirmation == "none" and on_ok != "complete":
         raise CatalogError(
             f"Phase {phase_id} on_ok={on_ok}에는 confirmation이 필요합니다"
+        )
+    if start_action == "start_mission" and confirmation == "none":
+        raise CatalogError(
+            f"Phase {phase_id} start_action=start_mission에는 confirmation이 필요합니다"
+        )
+    if start_action == "start_mission" and on_ok != "complete":
+        raise CatalogError(
+            f"Phase {phase_id} start_action=start_mission의 on_ok는 complete여야 합니다"
         )
     if confirm_after not in _VALID_CONFIRM_AFTER:
         raise CatalogError(
@@ -175,9 +191,10 @@ def _definition_from_entry(command_dir, entry):
         description=description.strip(),
         script=script,
         script_path=script_path,
+        start_action=start_action,
         confirmation=confirmation,
         on_ok=on_ok,
-        available=script_path.is_file(),
+        available=start_action == "start_mission" or script_path.is_file(),
         confirm_after=confirm_after,
         ready_action=ready_action,
         retry_script=retry_script,
@@ -221,6 +238,7 @@ def load_phase_catalog(command_dir):
             description=f"{script} 실행",
             script=script,
             script_path=script_path,
+            start_action="run_script",
             confirmation="none",
             on_ok="complete",
             available=True,

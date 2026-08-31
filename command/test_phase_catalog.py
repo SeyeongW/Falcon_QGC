@@ -78,11 +78,13 @@ class PhaseCatalogTest(unittest.TestCase):
         self.assertEqual(list(phases), [0, 100])
         self.assertEqual(phases[0].confirmation, "ok")
         self.assertEqual(phases[100].confirmation, "none")
+        self.assertEqual(phases[0].start_action, "run_script")
         self.assertEqual(phases[0].on_ok, "complete")
         self.assertEqual(phases[100].title, "그리퍼 시연")
         self.assertEqual(payload["phases"][1]["id"], 100)
         self.assertTrue(payload["phases"][1]["independent"])
         self.assertEqual(payload["phases"][0]["confirmation"], "ok")
+        self.assertEqual(payload["phases"][0]["start_action"], "run_script")
         self.assertEqual(payload["phases"][0]["on_ok"], "complete")
         self.assertNotIn(str(self.command_dir), json.dumps(payload))
 
@@ -132,6 +134,46 @@ class PhaseCatalogTest(unittest.TestCase):
                     "description": "invalid workflow",
                     "script": "phase1.py",
                     "on_ok": "start_mission",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(CatalogError, "confirmation"):
+            load_phase_catalog(self.command_dir)
+
+    def test_direct_mission_start_is_available_without_phase_script(self):
+        self._write_manifest(
+            [
+                {
+                    "id": 3,
+                    "title": "Phase 3",
+                    "description": "start uploaded mission",
+                    "script": "phase3.py",
+                    "pending": True,
+                    "start_action": "start_mission",
+                    "confirmation": "ok",
+                }
+            ]
+        )
+
+        phases = load_phase_catalog(self.command_dir)
+        payload = catalog_payload(phases)
+
+        self.assertEqual(phases[3].start_action, "start_mission")
+        self.assertEqual(phases[3].on_ok, "complete")
+        self.assertTrue(phases[3].available)
+        self.assertTrue(payload["phases"][0]["available"])
+
+    def test_rejects_direct_mission_start_without_completion_prompt(self):
+        self._write_script("phase1.py")
+        self._write_manifest(
+            [
+                {
+                    "id": 1,
+                    "title": "Phase 1",
+                    "description": "invalid direct mission",
+                    "script": "phase1.py",
+                    "start_action": "start_mission",
                 }
             ]
         )
@@ -232,6 +274,25 @@ class PhaseCatalogTest(unittest.TestCase):
         phases = load_phase_catalog(self.command_dir)
 
         self.assertTrue(catalog_payload(phases)["phases"][0]["retry_available"])
+
+    def test_accepts_operator_confirmed_land_workflow(self):
+        self._write_script("phase2.py")
+        self._write_manifest(
+            [
+                {
+                    "id": 2,
+                    "title": "Vision Based Land",
+                    "description": "Position hover then operator-confirmed land",
+                    "script": "phase2.py",
+                    "confirmation": "land",
+                }
+            ]
+        )
+
+        phases = load_phase_catalog(self.command_dir)
+
+        self.assertEqual(phases[2].confirmation, "land")
+        self.assertEqual(phases[2].ready_action, "none")
 
 
 if __name__ == "__main__":

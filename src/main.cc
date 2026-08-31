@@ -4,6 +4,10 @@
 #include "QGCLoggingCategory.h"
 #include "Platform.h"
 
+#ifdef QGC_ENABLE_CESIUM
+    #include <QtWebEngineQuick/QtWebEngineQuick>
+#endif
+
 #ifdef QGC_UNITTEST_BUILD
     #include "UnitTestList.h"
 #endif
@@ -22,6 +26,10 @@ int main(int argc, char *argv[])
     if (const auto exitCode = Platform::initialize(argc, argv, args)) {
         return *exitCode;
     }
+
+#ifdef QGC_ENABLE_CESIUM
+    QtWebEngineQuick::initialize();
+#endif
 
     QGCApplication app(argc, argv, args);
 

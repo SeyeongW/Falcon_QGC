@@ -273,7 +273,8 @@ void RosBridge::runPhase(int n)
 void RosBridge::respondPhase(const QString &response)
 {
     const QString normalizedResponse = response.trimmed().toLower();
-    if (normalizedResponse != QStringLiteral("ok") && normalizedResponse != QStringLiteral("again")) {
+    if (normalizedResponse != QStringLiteral("ok") && normalizedResponse != QStringLiteral("no")
+        && normalizedResponse != QStringLiteral("again")) {
         qCWarning(RosBridgeLog) << "invalid phase response" << response;
         return;
     }
@@ -304,7 +305,8 @@ void RosBridge::setCameraEnabled(bool enabled)
 void RosBridge::runGripper(const QString &action)
 {
     const QString normalizedAction = action.trimmed().toLower();
-    if (normalizedAction != QStringLiteral("open") && normalizedAction != QStringLiteral("close")) {
+    if (normalizedAction != QStringLiteral("open") && normalizedAction != QStringLiteral("close")
+        && normalizedAction != QStringLiteral("stop")) {
         qCWarning(RosBridgeLog) << "invalid gripper action" << action;
         return;
     }
@@ -317,6 +319,19 @@ void RosBridge::runGripper(const QString &action)
     msg.data = QStringLiteral("gripper:%1").arg(normalizedAction).toStdString();
     _actionPub->publish(msg);
     qCDebug(RosBridgeLog) << QString::fromStdString(msg.data) << "published";
+}
+
+void RosBridge::runFailsafe()
+{
+    if (!_actionPub) {
+        qCWarning(RosBridgeLog) << "failsafe action ignored: no publisher";
+        return;
+    }
+
+    std_msgs::msg::String msg;
+    msg.data = "failsafe:run";
+    _actionPub->publish(msg);
+    qCDebug(RosBridgeLog) << "failsafe:run published";
 }
 
 void RosBridge::abortMission()
@@ -473,6 +488,8 @@ void RosBridge::_onPhaseStatus(const std_msgs::msg::String::ConstSharedPtr &msg)
     _gripperCloseAvailable = actions.value(QStringLiteral("gripper_close_available")).toBool(false);
     _gripperBusy = actions.value(QStringLiteral("gripper_busy")).toBool(false);
     _gripperState = actions.value(QStringLiteral("gripper_state")).toString(QStringLiteral("unknown"));
+    _failsafeAvailable = actions.value(QStringLiteral("failsafe_available")).toBool(false);
+    _failsafeRunning = actions.value(QStringLiteral("failsafe_running")).toBool(false);
     _actionMsg = actions.value(QStringLiteral("msg")).toString();
 
     _lastPhaseMs = QDateTime::currentMSecsSinceEpoch();

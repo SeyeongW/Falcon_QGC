@@ -49,3 +49,13 @@ set(QGC_DISABLE_APM_PLUGIN_FACTORY OFF CACHE BOOL "Disable APM Plugin Factory" F
 # The custom PX4 plugin factory (CustomFirmwarePluginFactory) replaces the stock
 # PX4 one; APM is still handled by its own (now-enabled) factory.
 set(QGC_DISABLE_PX4_PLUGIN_FACTORY ON CACHE BOOL "Disable PX4 Plugin Factory" FORCE)
+
+# Cesium is optional, but its Qt imported targets must be created in the root
+# directory so Qt's deployment tooling can include WebEngine in an AppImage.
+if(NOT ANDROID AND NOT IOS)
+    set(QGC_CUSTOM_QT_OPTIONAL_COMPONENTS
+        WebChannel
+        WebEngineQuick
+        WebEngineQuickDelegatesQml
+    )
+endif()

@@ -40,16 +40,14 @@ class CustomOptions : public QGCOptions
     Q_OBJECT
 
 public:
-    explicit CustomOptions(CustomPlugin *plugin, QObject *parent = nullptr);
+    explicit CustomOptions(QObject *parent = nullptr);
 
     // Overrides from QGCOptions
 
-    /// Firmware upgrade page is only shown in Advanced Mode.
-    bool showFirmwareUpgrade() const final { return _plugin->showAdvancedUI(); }
+    bool alwaysShowParameterEditor() const final { return true; }
     QGCFlyViewOptions *flyViewOptions() const final { return _flyViewOptions; }
 
 private:
-    QGCCorePlugin *_plugin = nullptr;
     CustomFlyViewOptions *_flyViewOptions = nullptr;
 };
 
@@ -87,9 +85,6 @@ public:
                                                  const QString &kmlOrShpFile = QString()) final;
     /// Adds the Perimeter Scan plan creator to the New Plan dialog.
     QList<PlanCreator *> planCreators(PlanMasterController *planMasterController) final;
-
-private slots:
-    void _advancedChanged(bool advanced);
 
 private:
     void _addSettingsEntry(const QString& title, const char* qmlFile, const char* iconFile = nullptr);

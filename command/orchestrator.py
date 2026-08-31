@@ -7,7 +7,8 @@ catalog, runs the corresponding local Python script independently, and streams
 live progress back on `command/status` (std_msgs/String, JSON payload).
 
 Independent payload controls arrive on `command/run_action` (std_msgs/String):
-`camera:on`, `camera:off`, `gripper:open`, or `gripper:close`.
+`camera:on`, `camera:off`, `gripper:open`, `gripper:close`, `gripper:stop`,
+or `failsafe:run`.
 
 The phase catalog is published on `command/catalog` (std_msgs/String, JSON).
 `phases.json` supplies display metadata and may map ids to any Python script
@@ -19,13 +20,15 @@ Status JSON:
     {"phase": int,
      "state": "idle|running|awaiting_confirmation|done|failed",
      "msg": str, "progress": float(-1..1), "done": [completed phase ids],
-     "prompt": ""|"ok"|"ok_again",
+     "prompt": ""|"ok"|"ok_again"|"land",
      "actions": {camera/gripper availability and live state}}
 
 Catalog JSON:
     {"version": 1, "phases": [
         {"id": int, "title": str, "desc": str, "script": str,
-         "independent": true, "confirmation": "none"|"ok"|"ok_again",
+         "independent": true,
+         "confirmation": "none"|"ok"|"ok_again"|"land",
+         "start_action": "run_script"|"start_mission",
          "on_ok": "complete"|"start_mission"}]}
 
 Run on the aircraft mission computer:
@@ -49,7 +52,7 @@ from rclpy.qos import (
     qos_profile_sensor_data,
 )
 
-from std_msgs.msg import Bool, Empty, Int32, String
+from std_msgs.msg import Empty, Int32, String
 from mavros_msgs.msg import ExtendedState, State, WaypointList, WaypointReached
 from mavros_msgs.srv import SetMode
 
@@ -80,11 +83,12 @@ LAND_MODE_REQUEST_INTERVAL_SEC = 1.0
 LAND_MODE_ENTRY_TIMEOUT_SEC = 15.0
 MAV_CMD_NAV_WAYPOINT = 16
 
-CAMERA_SCRIPT = "cam.py"
+CAMERA_SCRIPT = "robo_jinheui_pt.py"
 GRIPPER_SCRIPTS = {
     "open": "gripper_open.py",
     "close": "gripper_close.py",
 }
+FAILSAFE_SCRIPT = "failsafe.py"
 
 
 class PhaseOrchestrator(Node):
@@ -106,12 +110,6 @@ class PhaseOrchestrator(Node):
             10,
         )
         self.create_subscription(String, "command/run_action", self._on_run_action, 10)
-        self.create_subscription(
-            Bool,
-            "/mission/ready_for_land",
-            self._on_ready_for_land,
-            10,
-        )
         # GCS take-over: abort the running phase and hand control back (HOLD).
         self.create_subscription(Empty, "command/abort", self._on_abort, 10)
         self.set_mode_cli = self.create_client(SetMode, "/mavros/set_mode")
@@ -155,7 +153,9 @@ class PhaseOrchestrator(Node):
         self._gripper_proc = None
         self._gripper_busy = False
         self._gripper_state = "unknown"
+        self._failsafe_proc = None
         self._action_msg = ""
+        self._shutting_down = False
         self._last_log = ""     # latest stdout line from the running phase
         self._aborting = False  # True while a GCS take-over is tearing a phase down
         self._phases = {}       # validated local phase definitions, keyed by id
@@ -206,6 +206,11 @@ class PhaseOrchestrator(Node):
 
         ids = ", ".join(str(phase_id) for phase_id in phases) or "none"
         self.get_logger().info(f"phase catalog 갱신됨 (ids: {ids})")
+        if any(not hasattr(phase, "available") for phase in phases.values()):
+            self.get_logger().warning(
+                "common/phase_catalog.py가 이전 버전입니다. command 폴더 전체를 "
+                "같은 버전으로 갱신하세요. 기본 Phase 동작으로 호환 실행합니다."
+            )
 
     def _publish_catalog(self):
         if not self._catalog_json:
@@ -225,15 +230,27 @@ class PhaseOrchestrator(Node):
             phase_id = self._mission_monitor_phase
             phase = self._phases.get(phase_id)
             title = phase.title if phase is not None else f"Phase {phase_id}"
-            self._done.add(phase_id)
-            self._running = None
             self._clear_mission_monitor()
-            self._publish(
-                "done",
-                1.0,
-                f"{title} 마지막 Waypoint 도착 완료",
-                phase=phase_id,
-            )
+            # A mission which ends with a normal Waypoint can otherwise retain
+            # firmware-dependent end-of-mission behavior. Explicit HOLD keeps
+            # the aircraft at the final target while the operator confirms it.
+            self._set_hold_mode()
+            if (
+                phase is not None
+                and getattr(phase, "start_action", "run_script")
+                == "start_mission"
+                and getattr(phase, "confirmation", "none") != "none"
+            ):
+                self._publish_phase_confirmation(phase)
+            else:
+                self._done.add(phase_id)
+                self._running = None
+                self._publish(
+                    "done",
+                    1.0,
+                    f"{title} 마지막 Waypoint 도착 완료",
+                    phase=phase_id,
+                )
 
     def _on_mission_waypoints(self, msg):
         nav_waypoint_sequences = [
@@ -267,18 +284,6 @@ class PhaseOrchestrator(Node):
     def _on_state(self, m):
         self._mode = m.mode
         self._armed = m.armed
-
-    def _on_ready_for_land(self, msg):
-        if not msg.data or self._running is None:
-            return
-
-        phase = self._phases.get(self._running)
-        if phase is None or phase.ready_action != "land":
-            return
-        if self._land_handoff_phase == self._running:
-            return
-
-        self._start_land_handoff(self._running)
 
     # --- current-section description (mainly for the phase-1 VTOL mission) ---
     def _section_desc(self):
@@ -339,23 +344,41 @@ class PhaseOrchestrator(Node):
 
     def _start_uploaded_mission(self, phase_id, phase):
         if self._uploaded_mission_last_wp < 0:
-            self._publish(
-                "awaiting_confirmation",
-                1.0,
-                "업로드된 일반 Waypoint 미션이 없습니다. 미션 업로드 후 OK를 다시 누르세요.",
-                phase=phase_id,
-                prompt=self._pending_confirmation,
-            )
+            if self._pending_confirmation is not None:
+                self._publish(
+                    "awaiting_confirmation",
+                    1.0,
+                    "업로드된 일반 Waypoint 미션이 없습니다. 미션 업로드 후 OK를 다시 누르세요.",
+                    phase=phase_id,
+                    prompt=self._pending_confirmation,
+                )
+            else:
+                self._running = None
+                self._publish(
+                    "failed",
+                    -1,
+                    "업로드된 일반 Waypoint 미션이 없습니다. 미션 업로드 후 Phase를 다시 실행하세요.",
+                    phase=phase_id,
+                )
             return False
 
         if not self.set_mode_cli.service_is_ready():
-            self._publish(
-                "awaiting_confirmation",
-                1.0,
-                "/mavros/set_mode 연결 대기 중입니다. 연결 확인 후 OK를 다시 누르세요.",
-                phase=phase_id,
-                prompt=self._pending_confirmation,
-            )
+            if self._pending_confirmation is not None:
+                self._publish(
+                    "awaiting_confirmation",
+                    1.0,
+                    "/mavros/set_mode 연결 대기 중입니다. 연결 확인 후 OK를 다시 누르세요.",
+                    phase=phase_id,
+                    prompt=self._pending_confirmation,
+                )
+            else:
+                self._running = None
+                self._publish(
+                    "failed",
+                    -1,
+                    "/mavros/set_mode 연결 대기 중입니다. 연결 확인 후 Phase를 다시 실행하세요.",
+                    phase=phase_id,
+                )
             return False
 
         now = time.monotonic()
@@ -449,7 +472,7 @@ class PhaseOrchestrator(Node):
         self._publish(
             "running",
             self._progress(),
-            "착륙 위치 정렬 완료 — AUTO.LAND 전환 요청",
+            "Land 승인됨 — AUTO.LAND 전환 요청",
             phase=phase_id,
         )
 
@@ -460,10 +483,16 @@ class PhaseOrchestrator(Node):
 
         now = time.monotonic()
         if self._mode == PX4_LAND_MODE:
+            phase = self._phases.get(phase_id)
+            title = phase.title if phase is not None else f"Phase {phase_id}"
+            self._clear_land_handoff()
+            self._running = None
+            self._pending_confirmation = None
+            self._done.add(phase_id)
             self._publish(
-                "running",
-                self._progress(),
-                "AUTO.LAND 진입 완료 — 착륙 중",
+                "done",
+                1.0,
+                f"{title} 완료 — AUTO.LAND 인가됨",
                 phase=phase_id,
             )
             return
@@ -491,12 +520,22 @@ class PhaseOrchestrator(Node):
         )
 
     def _publish_phase_confirmation(self, phase):
-        self._pending_confirmation = phase.confirmation
-        if phase.confirm_after == "landed":
+        confirmation = getattr(phase, "confirmation", "none")
+        confirm_after = getattr(phase, "confirm_after", "process_exit")
+        start_action = getattr(phase, "start_action", "run_script")
+        on_ok = getattr(phase, "on_ok", "complete")
+        self._pending_confirmation = confirmation
+        if confirmation == "land":
+            confirmation_message = "정렬이 완료 됐습니다. Land 하시겠습니까?"
+        elif confirm_after == "landed":
             confirmation_message = (
                 f"{phase.title} 착륙 완료 — 위치 확인 후 OK 또는 Again을 선택하세요"
             )
-        elif phase.on_ok == "start_mission":
+        elif start_action == "start_mission":
+            confirmation_message = (
+                f"{phase.title} Mission 종료 — 확인 후 OK를 눌러주세요"
+            )
+        elif on_ok == "start_mission":
             confirmation_message = (
                 f"{phase.title} 호버링 완료 — OK를 누르면 업로드 미션을 시작합니다"
             )
@@ -508,7 +547,7 @@ class PhaseOrchestrator(Node):
             1.0,
             confirmation_message,
             phase=phase.phase_id,
-            prompt=phase.confirmation,
+            prompt=confirmation,
         )
 
     # --- camera / gripper actions ------------------------------------------
@@ -521,6 +560,7 @@ class PhaseOrchestrator(Node):
             self._camera_proc is not None
             and self._camera_proc.poll() is None
         )
+        failsafe_proc = getattr(self, "_failsafe_proc", None)
         return {
             "camera_available": os.path.isfile(
                 self._action_script_path(CAMERA_SCRIPT)
@@ -534,6 +574,13 @@ class PhaseOrchestrator(Node):
             ),
             "gripper_busy": self._gripper_busy,
             "gripper_state": self._gripper_state,
+            "failsafe_available": os.path.isfile(
+                self._action_script_path(FAILSAFE_SCRIPT)
+            ),
+            "failsafe_running": (
+                failsafe_proc is not None
+                and failsafe_proc.poll() is None
+            ),
             "msg": self._action_msg,
         }
 
@@ -545,6 +592,10 @@ class PhaseOrchestrator(Node):
             self._stop_camera()
         elif command in ("gripper:open", "gripper:close"):
             self._start_gripper(command.split(":", 1)[1])
+        elif command == "gripper:stop":
+            self._stop_gripper()
+        elif command == "failsafe:run":
+            self._start_failsafe()
         else:
             self._action_msg = f"알 수 없는 장치 명령: {msg.data}"
             self.get_logger().warning(self._action_msg)
@@ -644,10 +695,10 @@ class PhaseOrchestrator(Node):
             return
 
         self._gripper_proc = proc
-        # This process may stay alive to hold force, but it never blocks a new
-        # open/close request: the next click replaces it. Keep the protocol's
-        # busy flag false so older FGC builds also leave both buttons enabled.
-        self._gripper_busy = False
+        # This process may stay alive to hold force. Report it as running so the
+        # GCS can show the active gripper command and turn its button into a
+        # stop control. The buttons remain enabled independently in the GCS.
+        self._gripper_busy = True
         self._gripper_state = action
         self._action_msg = f"Gripper {action.title()} 실행 중"
         self.get_logger().info(self._action_msg)
@@ -657,6 +708,124 @@ class PhaseOrchestrator(Node):
             args=(action, proc),
             daemon=True,
         ).start()
+
+    def _stop_gripper(self):
+        proc = self._gripper_proc
+        if proc is None or proc.poll() is not None:
+            self._gripper_proc = None
+            self._gripper_busy = False
+            self._gripper_state = "stopped"
+            self._action_msg = "Gripper가 이미 정지 상태입니다"
+            self._republish()
+            return
+
+        action = self._gripper_state
+        # Detach before SIGTERM so the monitor thread cannot report the
+        # intentional stop as an action failure. SIGKILL follows after two
+        # seconds if the payload script ignores SIGTERM.
+        self._gripper_proc = None
+        self._gripper_busy = False
+        self._gripper_state = "stopped"
+        self._action_msg = f"Gripper {action.title()} 종료"
+        proc.terminate()
+        threading.Thread(
+            target=self._kill_after,
+            args=(proc, 2.0),
+            daemon=True,
+        ).start()
+        self.get_logger().info(self._action_msg)
+        self._republish()
+
+    def _start_failsafe(self):
+        if self._running not in (2, 4):
+            self._action_msg = "Failsafe는 Phase 2 또는 Phase 4 실행 중에만 사용할 수 있습니다"
+            self.get_logger().warning(self._action_msg)
+            self._republish()
+            return
+
+        if self._failsafe_proc is not None and self._failsafe_proc.poll() is None:
+            self._action_msg = "Failsafe가 이미 실행 중입니다"
+            self._republish()
+            return
+
+        script = self._action_script_path(FAILSAFE_SCRIPT)
+        if not os.path.isfile(script):
+            self._failsafe_proc = None
+            self._action_msg = f"{FAILSAFE_SCRIPT} 없음"
+            self.get_logger().error(self._action_msg)
+            self._republish()
+            return
+
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, script],
+                cwd=COMMAND_DIR,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._failsafe_proc = None
+            self._action_msg = f"Failsafe 실행 실패: {exc}"
+            self.get_logger().error(self._action_msg)
+            self._republish()
+            return
+
+        self._failsafe_proc = proc
+        self._action_msg = "Failsafe 실행 중"
+        self.get_logger().warning(self._action_msg)
+        self._republish()
+        threading.Thread(
+            target=self._monitor_failsafe,
+            args=(proc,),
+            daemon=True,
+        ).start()
+
+    def _monitor_failsafe(self, proc):
+        try:
+            output, _ = proc.communicate()
+            rc = proc.returncode
+        except Exception as exc:  # noqa: BLE001
+            if self._failsafe_proc is not proc:
+                return
+            self._action_msg = f"Failsafe 실행 실패: {exc}"
+            self.get_logger().error(self._action_msg)
+        else:
+            if self._failsafe_proc is not proc:
+                return
+            detail = output.strip().splitlines()[-1] if output.strip() else ""
+            if rc == 0:
+                self._action_msg = "Failsafe 완료"
+                self.get_logger().info(self._action_msg)
+            else:
+                self._action_msg = (
+                    f"Failsafe 실패 (exit {rc})"
+                    + (f" — {detail}" if detail else "")
+                )
+                self.get_logger().error(self._action_msg)
+
+        if self._failsafe_proc is proc:
+            self._failsafe_proc = None
+            self._republish()
+
+    def _stop_failsafe(self, message):
+        proc = getattr(self, "_failsafe_proc", None)
+        if proc is None or proc.poll() is not None:
+            self._failsafe_proc = None
+            return
+
+        # Failsafe is scoped to the active Phase 2/4 run. Detach it before
+        # SIGTERM so its monitor cannot overwrite the intentional-stop status.
+        self._failsafe_proc = None
+        proc.terminate()
+        threading.Thread(
+            target=self._kill_after,
+            args=(proc, 2.0),
+            daemon=True,
+        ).start()
+        self._action_msg = message
+        self.get_logger().info(self._action_msg)
+        self._republish()
 
     def _monitor_gripper(self, action, proc):
         try:
@@ -707,13 +876,29 @@ class PhaseOrchestrator(Node):
 
     # --- run-phase handling --------------------------------------------------
     def _on_run_phase(self, msg):
-        n = int(msg.data)
+        try:
+            n = int(msg.data)
+            self._start_phase_request(n)
+        except Exception as exc:  # noqa: BLE001
+            # An exception raised from an rclpy subscription callback escapes
+            # executor.spin_once() and terminates the whole orchestrator. Keep a
+            # malformed request or mismatched catalog module local to this run.
+            self.get_logger().error(f"Phase 실행 요청 처리 실패: {exc}")
+            if self._proc is None:
+                self._running = None
+            self._publish("failed", -1, f"Phase 실행 요청 실패: {exc}", phase=-1)
 
+    def _start_phase_request(self, n):
         phase = self._phases.get(n)
         if phase is None:
             self._publish("failed", -1, f"등록되지 않은 Phase: {n}", phase=n)
             return
-        if not phase.available:
+        available = getattr(
+            phase,
+            "available",
+            os.path.isfile(str(phase.script_path)),
+        )
+        if not available:
             self._publish(
                 "failed",
                 -1,
@@ -740,6 +925,10 @@ class PhaseOrchestrator(Node):
         self._clear_mission_monitor()
         self._waiting_for_landing_phase = None
         self._clear_land_handoff()
+        if getattr(phase, "start_action", "run_script") == "start_mission":
+            self._start_uploaded_mission(n, phase)
+            return
+
         threading.Thread(target=self._run_phase, args=(phase,), daemon=True).start()
 
     def _run_phase(self, phase):
@@ -774,6 +963,7 @@ class PhaseOrchestrator(Node):
 
         rc = self._proc.wait()
         self._proc = None
+        self._stop_failsafe("Phase 종료 — Failsafe 프로세스 정리됨")
 
         if self._aborting:
             # The nonzero exit was an intentional GCS take-over, not a failure.
@@ -784,8 +974,13 @@ class PhaseOrchestrator(Node):
             self._clear_land_handoff()
             self._publish("idle", -1, "제어권 회수됨 — HOLD(제자리 호버링)", phase=-1)
         elif rc == 0:
-            self._clear_land_handoff()
-            if phase.confirm_after == "landed":
+            confirm_after = getattr(phase, "confirm_after", "process_exit")
+            confirmation = getattr(phase, "confirmation", "none")
+            if confirmation == "land":
+                self._clear_land_handoff()
+                self._publish_phase_confirmation(phase)
+            elif confirm_after == "landed":
+                self._clear_land_handoff()
                 if self._landed_state == 1:
                     self._publish_phase_confirmation(phase)
                 else:
@@ -796,9 +991,11 @@ class PhaseOrchestrator(Node):
                         f"{phase.title} 착륙 완료 확인 중",
                         phase=n,
                     )
-            elif phase.confirmation != "none":
+            elif confirmation != "none":
+                self._clear_land_handoff()
                 self._publish_phase_confirmation(phase)
             else:
+                self._clear_land_handoff()
                 self._running = None
                 self._done.add(n)
                 self._publish("done", 1.0, f"{phase.title} 완료", phase=n)
@@ -810,23 +1007,26 @@ class PhaseOrchestrator(Node):
             self._publish("failed", -1, f"Phase {n} 실패 (exit {rc}) — {self._last_log}", phase=n)
 
     def _start_phase_retry(self, phase):
-        if phase.retry_script_path is None:
+        retry_script_path = getattr(phase, "retry_script_path", None)
+        retry_script = getattr(phase, "retry_script", None)
+        confirmation = getattr(phase, "confirmation", "none")
+        if retry_script_path is None:
             self._publish(
                 "awaiting_confirmation",
                 1.0,
                 f"{phase.title} 재시도 스크립트가 설정되지 않았습니다",
                 phase=phase.phase_id,
-                prompt=phase.confirmation,
+                prompt=confirmation,
             )
             return False
 
-        if not phase.retry_script_path.is_file():
+        if not retry_script_path.is_file():
             self._publish(
                 "awaiting_confirmation",
                 1.0,
-                f"{phase.retry_script} 없음 — 파일 추가 후 Again을 다시 누르세요",
+                f"{retry_script} 없음 — 파일 추가 후 Again을 다시 누르세요",
                 phase=phase.phase_id,
-                prompt=phase.confirmation,
+                prompt=confirmation,
             )
             return False
 
@@ -848,9 +1048,11 @@ class PhaseOrchestrator(Node):
         return True
 
     def _run_retry_script(self, phase):
+        retry_script = getattr(phase, "retry_script", None)
+        retry_script_path = getattr(phase, "retry_script_path", None)
         try:
             self._proc = subprocess.Popen(
-                [sys.executable, str(phase.retry_script_path)],
+                [sys.executable, str(retry_script_path)],
                 cwd=COMMAND_DIR,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -862,7 +1064,7 @@ class PhaseOrchestrator(Node):
             self._publish(
                 "failed",
                 -1,
-                f"{phase.retry_script} 실행 실패: {exc}",
+                f"{retry_script} 실행 실패: {exc}",
                 phase=phase.phase_id,
             )
             return
@@ -897,7 +1099,7 @@ class PhaseOrchestrator(Node):
             self._publish(
                 "failed",
                 -1,
-                f"{phase.retry_script} 실패 (exit {rc}) — {self._last_log}",
+                f"{retry_script} 실패 (exit {rc}) — {self._last_log}",
                 phase=phase.phase_id,
             )
 
@@ -917,7 +1119,12 @@ class PhaseOrchestrator(Node):
             self._republish()
             return
 
-        valid_responses = {"ok"} if prompt == "ok" else {"ok", "again"}
+        if prompt == "ok":
+            valid_responses = {"ok"}
+        elif prompt == "land":
+            valid_responses = {"ok", "no"}
+        else:
+            valid_responses = {"ok", "again"}
         if response not in valid_responses:
             self.get_logger().warning(
                 f"Phase {phase_id}의 올바르지 않은 응답: {response}"
@@ -929,7 +1136,14 @@ class PhaseOrchestrator(Node):
         title = phase.title if phase is not None else f"Phase {phase_id}"
 
         if response == "ok":
-            if phase is not None and phase.on_ok == "start_mission":
+            if prompt == "land":
+                self._pending_confirmation = None
+                self._start_land_handoff(phase_id)
+                return
+            if (
+                phase is not None
+                and getattr(phase, "on_ok", "complete") == "start_mission"
+            ):
                 self._start_uploaded_mission(phase_id, phase)
                 return
 
@@ -937,8 +1151,22 @@ class PhaseOrchestrator(Node):
             self._pending_confirmation = None
             self._done.add(phase_id)
             self._publish("done", 1.0, f"{title} 완료 확인됨", phase=phase_id)
+        elif response == "no":
+            # The phase code has already handed control back in Position mode.
+            # Keep the decision pending so the operator can approve Land later
+            # from the footer without re-running the alignment code.
+            self._publish(
+                "awaiting_confirmation",
+                self._progress(),
+                f"{title} Land 취소 — Position 호버링 유지",
+                phase=phase_id,
+                prompt="land",
+            )
         else:
-            if phase is not None and phase.retry_script is not None:
+            if (
+                phase is not None
+                and getattr(phase, "retry_script", None) is not None
+            ):
                 self._start_phase_retry(phase)
                 return
 
@@ -954,6 +1182,7 @@ class PhaseOrchestrator(Node):
         finalizes as "idle" because `_aborting` is set) and switches PX4 to HOLD
         so the vehicle hovers in place and waits for the operator's commands.
         """
+        self._stop_failsafe("제어권 회수 — Failsafe 중단")
         proc = self._proc
         if self._running is not None and proc is not None:
             self._aborting = True
@@ -1029,6 +1258,8 @@ class PhaseOrchestrator(Node):
         elif self._running is not None and self._status["state"] == "running":
             sec = self._section_desc()
             text = sec if sec else (self._last_log or f"Phase {self._running} 실행 중")
+            if self._running in (2, 4):
+                text = f"Vision Based Land — {self._last_log or '영상 인식 · Position 정렬 중'}"
             self._publish("running", self._progress(), text, phase=self._running)
         else:
             self._republish()
@@ -1046,11 +1277,21 @@ class PhaseOrchestrator(Node):
         self._republish()
 
     def _republish(self):
+        if getattr(self, "_shutting_down", False):
+            return
+
         payload = dict(self._status)
         payload["actions"] = self._action_status()
         s = String()
         s.data = json.dumps(payload, ensure_ascii=False)
-        self.status_pub.publish(s)
+        try:
+            self.status_pub.publish(s)
+        except Exception:  # noqa: BLE001
+            # rclpy can invalidate a publisher between the check above and the
+            # publish call while shutdown races a payload worker thread.
+            if getattr(self, "_shutting_down", False) or not rclpy.ok():
+                return
+            raise
 
 
 def _acquire_singleton_lock():
@@ -1087,12 +1328,17 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        # Payload and phase monitor threads may still be unwinding. Prevent
+        # them from publishing after destroy_node() invalidates ROS handles.
+        node._shutting_down = True
         if node._proc is not None:
             node._proc.terminate()
         if node._camera_proc is not None:
             node._camera_proc.terminate()
         if node._gripper_proc is not None:
             node._gripper_proc.terminate()
+        if node._failsafe_proc is not None:
+            node._failsafe_proc.terminate()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

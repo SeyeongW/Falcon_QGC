@@ -17,6 +17,9 @@ Item {
     property real consolePanelWidth
     property real paneSpacing
     property bool use3DRouteView: true
+    readonly property bool cesiumRouteViewAvailable: (typeof customCesiumEnabled !== "undefined")
+                                                      && customCesiumEnabled
+    property bool useCesiumRouteView: cesiumRouteViewAvailable
     property bool force3DVisibleForDebug: false
 
     readonly property string noGPS:         qsTr("NO GPS")
@@ -169,8 +172,14 @@ Item {
                     Layout.fillWidth:   true
                     Layout.fillHeight:  true
                     visible:            missionHeader.expanded
-                    active:             missionHeader.expanded && (typeof customRosEnabled !== 'undefined') && customRosEnabled
+                    active:             (typeof customRosEnabled !== 'undefined') && customRosEnabled
                     source:             active ? "qrc:/qml/Custom/Widgets/MissionPhasePanel.qml" : ""
+                    onLoaded: {
+                        item.planMasterController = Qt.binding(function() {
+                            return (typeof globals !== "undefined")
+                                    ? globals.planMasterControllerFlyView : null
+                        })
+                    }
                 }
 
                 // Bottom expand/collapse chevron — small, white, centered, like a
@@ -306,9 +315,21 @@ Item {
             readonly property bool route3DReady: root.use3DRouteView
                                                  && route3DLoader.status === Loader.Ready
                                                  && route3DLoader.item !== null
+            readonly property bool route3DDisplayReady: route3DReady
+                                                        && (typeof route3DLoader.item.displayReady === "undefined"
+                                                            || route3DLoader.item.displayReady)
             readonly property bool route3DActive: route3DReady
-                                                  && (root.force3DVisibleForDebug
+                                                  && route3DDisplayReady
+                                                  && (root.useCesiumRouteView
+                                                      || root.force3DVisibleForDebug
                                                       || route3DLoader.item.routeDataValid)
+
+            function useClassicRouteView(reason) {
+                if (root.useCesiumRouteView) {
+                    console.warn("[MissionRoute3D] Falling back to CLASSIC:", reason)
+                    root.useCesiumRouteView = false
+                }
+            }
 
             function logRoute3DDebugState(reason) {
                 const loaderHasItem = route3DLoader.item !== null
@@ -317,6 +338,7 @@ Item {
                         : false
                 console.log("[MissionRoute3D Debug]", reason,
                             "use3DRouteView:", root.use3DRouteView,
+                            "useCesiumRouteView:", root.useCesiumRouteView,
                             "force3DVisibleForDebug:", root.force3DVisibleForDebug,
                             "loader.status:", route3DLoader.status,
                             "loader.source:", route3DLoader.source,
@@ -348,10 +370,15 @@ Item {
                 width:   missionRouteView.routeAreaWidth
                 height:  missionRouteView.height
                 active:  root.use3DRouteView
-                visible: controlSurfacePanel.route3DActive
-                opacity: 1
+                visible: controlSurfacePanel.route3DReady
+                enabled: controlSurfacePanel.route3DActive
+                opacity: controlSurfacePanel.route3DActive ? 1 : 0
                 z:       1
-                source:  active ? "qrc:/qml/Custom/Widgets/MissionRoute3DView.qml" : ""
+                source:  active
+                         ? (root.useCesiumRouteView
+                            ? "qrc:/qml/Custom/Widgets/CesiumRoute3DView.qml"
+                            : "qrc:/qml/Custom/Widgets/MissionRoute3DView.qml")
+                         : ""
 
                 onStatusChanged: {
                     console.log("[MissionRoute3D Debug] Loader status changed:",
@@ -362,6 +389,9 @@ Item {
                         console.error("[MissionRoute3D Debug] Loader.Error for",
                                       source,
                                       "- check the adjacent QML error in Application Output")
+                        if (root.useCesiumRouteView) {
+                            controlSurfacePanel.useClassicRouteView("Cesium QML could not be loaded")
+                        }
                     }
                     Qt.callLater(function() {
                         controlSurfacePanel.logRoute3DDebugState("Loader.onStatusChanged")
@@ -421,6 +451,83 @@ Item {
                         controlSurfacePanel.logRoute3DDebugState(
                                     "MissionRoute3DView.routeDataValid changed")
                     })
+                }
+
+                function onLoadFailedChanged() {
+                    if (route3DLoader.item
+                            && route3DLoader.item.loadFailed
+                            && root.useCesiumRouteView) {
+                        controlSurfacePanel.useClassicRouteView(
+                                    route3DLoader.item.loadError || "Cesium runtime error")
+                    }
+                }
+            }
+
+            Rectangle {
+                id: routeViewModeSwitch
+
+                visible: root.use3DRouteView
+                x: missionRouteView.x + _toolsMargin
+                y: missionRouteView.y + _toolsMargin
+                width: Math.max(124, ScreenTools.defaultFontPixelWidth * 18)
+                height: Math.max(24, ScreenTools.defaultFontPixelHeight * 1.55)
+                radius: 4
+                color: Qt.rgba(0.03, 0.08, 0.14, 0.88)
+                border.color: Qt.rgba(0.34, 0.59, 0.71, 0.70)
+                border.width: 1
+                z: 4
+
+                Row {
+                    anchors.fill: parent
+                    anchors.margins: 2
+
+                    Rectangle {
+                        width: parent.width / 2
+                        height: parent.height
+                        radius: 3
+                        enabled: root.cesiumRouteViewAvailable
+                        opacity: root.cesiumRouteViewAvailable ? 1 : 0.45
+                        color: root.useCesiumRouteView ? _falconCyan : "transparent"
+
+                        QGCLabel {
+                            anchors.centerIn: parent
+                            text: qsTr("CESIUM")
+                            color: root.useCesiumRouteView ? _falconNavy : "white"
+                            font.pixelSize: Math.max(9, routeViewModeSwitch.height * 0.38)
+                            font.bold: true
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (root.cesiumRouteViewAvailable) {
+                                    root.useCesiumRouteView = true
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width / 2
+                        height: parent.height
+                        radius: 3
+                        color: root.useCesiumRouteView ? "transparent" : _falconCyan
+
+                        QGCLabel {
+                            anchors.centerIn: parent
+                            text: qsTr("CLASSIC")
+                            color: root.useCesiumRouteView ? "white" : _falconNavy
+                            font.pixelSize: Math.max(9, routeViewModeSwitch.height * 0.38)
+                            font.bold: true
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.useCesiumRouteView = false
+                        }
+                    }
                 }
             }
 
@@ -554,11 +661,11 @@ Item {
             id:                     flightInfoSection
             anchors.fill:           parent
 
-            readonly property real _compassSize: Math.min(width * 0.76, height * 0.65)
+            readonly property real _compassSize: Math.min(width * 0.94, height * 0.94)
 
             CustomAttitudeWidget {
                 anchors.centerIn:            parent
-                anchors.verticalCenterOffset: parent.height * 0.07
+                anchors.verticalCenterOffset: 0
                 size:                        flightInfoSection._compassSize
                 vehicle:                     _activeVehicle
                 showHeading:                 true

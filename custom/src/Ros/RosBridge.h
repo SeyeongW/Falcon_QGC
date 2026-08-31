@@ -58,6 +58,8 @@ class RosBridge : public QObject
     Q_PROPERTY(bool gripperCloseAvailable READ gripperCloseAvailable NOTIFY phaseStatusChanged)
     Q_PROPERTY(bool gripperBusy READ gripperBusy NOTIFY phaseStatusChanged)
     Q_PROPERTY(QString gripperState READ gripperState NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool failsafeAvailable READ failsafeAvailable NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool failsafeRunning READ failsafeRunning NOTIFY phaseStatusChanged)
     Q_PROPERTY(QString actionMsg READ actionMsg NOTIFY phaseStatusChanged)
 
 public:
@@ -88,6 +90,8 @@ public:
     bool gripperCloseAvailable() const { return _gripperCloseAvailable; }
     bool gripperBusy() const { return _gripperBusy; }
     QString gripperState() const { return _gripperState; }
+    bool failsafeAvailable() const { return _failsafeAvailable; }
+    bool failsafeRunning() const { return _failsafeRunning; }
     QString actionMsg() const { return _actionMsg; }
 
     /// Convert a raw sensor_msgs/Image to QImage. Supports rgb8/bgr8/rgba8/
@@ -104,12 +108,14 @@ public slots:
     void setActuatorTopic(const QString &topic);
     /// Ask the orchestrator to run mission phase `n` (publishes command/run_phase).
     Q_INVOKABLE void runPhase(int n);
-    /// Reply to the active phase prompt ("ok" or "again").
+    /// Reply to the active phase prompt ("ok", "no", or legacy "again").
     Q_INVOKABLE void respondPhase(const QString &response);
     /// Start or stop the onboard camera process.
     Q_INVOKABLE void setCameraEnabled(bool enabled);
-    /// Run one onboard gripper action ("open" or "close").
+    /// Run or stop an onboard gripper action ("open", "close", or "stop").
     Q_INVOKABLE void runGripper(const QString &action);
+    /// Run command/failsafe.py while Phase 2 or Phase 4 is active.
+    Q_INVOKABLE void runFailsafe();
     /// Take control back from the orchestrator: publishes command/abort so it
     /// terminates the running phase script and hands the vehicle to the GCS
     /// (the orchestrator switches PX4 to HOLD / hover-in-place).
@@ -188,5 +194,7 @@ private:
     bool _gripperCloseAvailable = false;
     bool _gripperBusy = false;
     QString _gripperState = QStringLiteral("unknown");
+    bool _failsafeAvailable = false;
+    bool _failsafeRunning = false;
     QString _actionMsg;
 };

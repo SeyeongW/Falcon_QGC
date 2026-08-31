@@ -141,7 +141,7 @@ Item {
                     { label: qsTr("PITCH"),   value: _telemetryText(_activeVehicle ? _activeVehicle.pitch : null, 1) },
                     { label: qsTr("DESCENT"), value: _descentRateText() },
                     { label: qsTr("ALT"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.altitudeRelative : null, true) },
-                    { label: qsTr("CLIMB"),   value: _factTelemetryText(_activeVehicle ? _activeVehicle.climbRate : null, true) },
+                    { label: qsTr("V/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.climbRate : null, true) },
                     { label: qsTr("G/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.groundSpeed : null, true) },
                     { label: qsTr("A/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.airSpeed : null, true) },
                     { label: qsTr("THR"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.throttlePct : null, true) },

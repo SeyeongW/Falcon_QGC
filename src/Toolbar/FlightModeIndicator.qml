@@ -41,7 +41,9 @@ Item {
 
         QGCLabel {
             id:                 flightModeLabel
-            text:               activeVehicle ? activeVehicle.flightMode : qsTr("N/A", "No data to display")
+            text:               globals.flightModeDisplayOverride.length > 0
+                                    ? globals.flightModeDisplayOverride
+                                    : activeVehicle ? activeVehicle.flightMode : qsTr("N/A", "No data to display")
             color:              qgcPal.text
             font.pointSize:     fontPointSize
 

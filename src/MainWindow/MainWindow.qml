@@ -77,6 +77,10 @@ ApplicationWindow {
         // Set to a non-empty string to block navigation with a custom reason (e.g. during calibration)
         property string             navigationBlockedReason:        ""
 
+        // Custom mission workflows may provide an operator-facing name while
+        // the autopilot keeps its real underlying flight mode unchanged.
+        property string             flightModeDisplayOverride:      ""
+
         // Property to manage RemoteID quick access to settings page
         property bool               commingFromRIDIndicator:        false
     }

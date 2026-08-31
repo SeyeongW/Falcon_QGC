@@ -17,6 +17,10 @@ import Custom.Ros
 Rectangle {
     id: root
 
+    // Supplied by FlyViewCustomLayer. This is QGC's existing live-plan
+    // controller, so mission files use the same validation/upload path as Plan.
+    property var planMasterController
+
     color: Qt.rgba(0.03, 0.08, 0.14, 0.94)
     radius: 6
     border.color: Qt.rgba(0.22, 0.74, 0.97, 0.70)
@@ -41,8 +45,12 @@ Rectangle {
     readonly property var    _done:       RosBridge.phaseDone
     readonly property bool   _awaitingConfirmation: _state === "awaiting_confirmation"
     readonly property bool   _busy:       _state === "running" || _awaitingConfirmation
+    readonly property bool   _gripperOpenRunning: RosBridge.gripperBusy && RosBridge.gripperState === "open"
+    readonly property bool   _gripperCloseRunning: RosBridge.gripperBusy && RosBridge.gripperState === "close"
     property string _shownPromptKey: ""
     property var _activePromptDialog: null
+    property bool _missionUploadRequested: false
+    property bool _missionUploadSawSync: false
 
     // Connection state machine: attempt to reach the orchestrator for up to 60 s;
     // if command/status never arrives, surface a red "연결 실패" + a retry button.
@@ -86,8 +94,8 @@ Rectangle {
         const promptText = _activePhase === 0
             ? qsTr("기체 점검 코드가 정상적으로 종료되었습니다. OK를 누르면 Phase 0을 완료로 기록합니다.")
             : RosBridge.phaseMsg
-        if (RosBridge.phasePrompt === "ok_again") {
-            _activePromptDialog = phaseRetryDialogFactory.open({
+        if (RosBridge.phasePrompt === "land") {
+            _activePromptDialog = landConfirmDialogFactory.open({
                 phaseId: _activePhase,
                 promptText: promptText
             })
@@ -102,43 +110,149 @@ Rectangle {
         }
     }
 
-    Connections {
-        target: RosBridge
-        function onPhaseStatusChanged() { root._syncPhasePrompt() }
+    function _syncFlightModeDisplay() {
+        const visionBasedLandActive = root._linkOk
+                && root._busy
+                && (root._activePhase === 2 || root._activePhase === 4)
+        globals.flightModeDisplayOverride = visionBasedLandActive
+                ? qsTr("Vision Based Land") : ""
     }
 
-    Component.onCompleted: _syncPhasePrompt()
+    Connections {
+        target: RosBridge
+        function onPhaseStatusChanged() {
+            root._syncPhasePrompt()
+            root._syncFlightModeDisplay()
+        }
+    }
+
+    Connections {
+        target: root.planMasterController
+        enabled: !!root.planMasterController
+
+        function onSyncInProgressChanged() {
+            if (!root._missionUploadRequested)
+                return
+            if (root.planMasterController.syncInProgress) {
+                root._missionUploadSawSync = true
+            } else if (root._missionUploadSawSync) {
+                root._missionUploadRequested = false
+                root._missionUploadSawSync = false
+                QGroundControl.showMessageDialog(
+                    root,
+                    qsTr("Mission 업로드"),
+                    qsTr("기체로 Mission 업로드를 완료했습니다.")
+                )
+            }
+        }
+    }
+
+    function _sendLoadedMission() {
+        const controller = root.planMasterController
+        if (!controller || !controller.missionController)
+            return
+
+        switch (controller.missionController.sendToVehiclePreCheck()) {
+        case MissionController.SendToVehiclePreCheckStateOk:
+            root._missionUploadRequested = true
+            root._missionUploadSawSync = false
+            controller.sendToVehicle()
+            break
+        case MissionController.SendToVehiclePreCheckStateActiveMission:
+            QGroundControl.showMessageDialog(
+                root,
+                qsTr("Mission 업로드 불가"),
+                qsTr("현재 Mission 비행을 먼저 중지한 뒤 업로드해 주세요.")
+            )
+            break
+        case MissionController.SendToVehiclePreCheckStateFirwmareVehicleMismatch:
+            QGroundControl.showMessageDialog(
+                root,
+                qsTr("Mission 기체 형식 확인"),
+                qsTr("선택한 Mission의 펌웨어 또는 기체 형식이 현재 기체와 다릅니다. 그래도 업로드하시겠습니까?"),
+                Dialog.Ok | Dialog.Cancel,
+                function() {
+                    root._missionUploadRequested = true
+                    root._missionUploadSawSync = false
+                    controller.sendToVehicle()
+                }
+            )
+            break
+        default:
+            QGroundControl.showMessageDialog(
+                root,
+                qsTr("Mission 업로드 불가"),
+                qsTr("연결된 기체를 찾을 수 없습니다.")
+            )
+            break
+        }
+    }
+
+    function _loadAndUploadMission(file) {
+        const controller = root.planMasterController
+        if (!controller)
+            return
+
+        controller.loadFromFile(file)
+        missionUploadDialog.close()
+        if (!controller.containsItems || !controller.dirtyForUpload) {
+            QGroundControl.showMessageDialog(
+                root,
+                qsTr("Mission 파일 오류"),
+                qsTr("선택한 파일에서 업로드할 Mission 항목을 불러오지 못했습니다.")
+            )
+            return
+        }
+        root._sendLoadedMission()
+    }
+
+    QGCFileDialog {
+        id: missionUploadDialog
+        title: qsTr("업로드할 Mission 파일 선택")
+        folder: QGroundControl.settingsManager.appSettings.missionSavePath
+        nameFilters: root.planMasterController ? root.planMasterController.loadNameFilters : []
+        onAcceptedForLoad: (file) => root._loadAndUploadMission(file)
+    }
+
+    Component.onCompleted: {
+        _syncPhasePrompt()
+        _syncFlightModeDisplay()
+    }
+    Component.onDestruction: {
+        if (globals.flightModeDisplayOverride === qsTr("Vision Based Land"))
+            globals.flightModeDisplayOverride = ""
+    }
 
     QGCPopupDialogFactory {
-        id: phaseRetryDialogFactory
-        dialogComponent: phaseRetryDialogComponent
+        id: landConfirmDialogFactory
+        dialogComponent: landConfirmDialogComponent
     }
 
     Component {
-        id: phaseRetryDialogComponent
+        id: landConfirmDialogComponent
 
         QGCPopupDialog {
-            id: phaseRetryDialog
+            id: landConfirmDialog
             required property int phaseId
             required property string promptText
 
-            title: qsTr("Phase %1 착륙 위치 확인").arg(phaseId)
+            title: qsTr("Phase %1 Land 확인").arg(phaseId)
             buttons: Dialog.NoButton
             onClosed: {
-                if (root._activePromptDialog === phaseRetryDialog)
+                if (root._activePromptDialog === landConfirmDialog)
                     root._activePromptDialog = null
             }
 
             ColumnLayout {
                 width: Math.max(
                     ScreenTools.defaultFontPixelWidth * 42,
-                    phaseRetryDialog.headerMinWidth
+                    landConfirmDialog.headerMinWidth
                 )
                 spacing: root._margin
 
                 QGCLabel {
                     Layout.fillWidth: true
-                    text: phaseRetryDialog.promptText
+                    text: landConfirmDialog.promptText
                     wrapMode: Text.WordWrap
                 }
 
@@ -151,16 +265,16 @@ Rectangle {
                         text: qsTr("OK")
                         onClicked: {
                             RosBridge.respondPhase("ok")
-                            phaseRetryDialog.close()
+                            landConfirmDialog.close()
                         }
                     }
 
                     QGCButton {
                         Layout.fillWidth: true
-                        text: qsTr("Again")
+                        text: qsTr("NO")
                         onClicked: {
-                            RosBridge.respondPhase("again")
-                            phaseRetryDialog.close()
+                            RosBridge.respondPhase("no")
+                            landConfirmDialog.close()
                         }
                     }
                 }
@@ -225,15 +339,31 @@ Rectangle {
             }
 
             QGCButton {
-                text: qsTr("Gripper Open")
+                text: root._gripperOpenRunning ? qsTr("Gripper Open Stop") : qsTr("Gripper Open")
                 enabled: root._linkOk && RosBridge.gripperOpenAvailable
-                onClicked: RosBridge.runGripper("open")
+                backgroundColor: root._gripperOpenRunning ? "#16A34A" : qgcPal.button
+                textColor: root._gripperOpenRunning ? "white" : qgcPal.buttonText
+                onClicked: RosBridge.runGripper(root._gripperOpenRunning ? "stop" : "open")
             }
 
             QGCButton {
-                text: qsTr("Gripper Close")
+                text: root._gripperCloseRunning ? qsTr("Gripper Close Stop") : qsTr("Gripper Close")
                 enabled: root._linkOk && RosBridge.gripperCloseAvailable
-                onClicked: RosBridge.runGripper("close")
+                backgroundColor: root._gripperCloseRunning ? "#16A34A" : qgcPal.button
+                textColor: root._gripperCloseRunning ? "white" : qgcPal.buttonText
+                onClicked: RosBridge.runGripper(root._gripperCloseRunning ? "stop" : "close")
+            }
+
+            QGCButton {
+                text: RosBridge.failsafeRunning ? qsTr("Failsafe 실행 중") : qsTr("Failsafe")
+                enabled: root._linkOk
+                         && RosBridge.failsafeAvailable
+                         && !RosBridge.failsafeRunning
+                         && root._busy
+                         && (root._activePhase === 2 || root._activePhase === 4)
+                backgroundColor: RosBridge.failsafeRunning ? qgcPal.colorYellow : qgcPal.button
+                textColor: RosBridge.failsafeRunning ? "black" : qgcPal.buttonText
+                onClicked: RosBridge.runFailsafe()
             }
 
             QGCLabel {
@@ -415,14 +545,14 @@ Rectangle {
             QGCButton {
                 text: qsTr("OK")
                 visible: root._awaitingConfirmation
-                         && (RosBridge.phasePrompt === "ok" || RosBridge.phasePrompt === "ok_again")
+                         && (RosBridge.phasePrompt === "ok" || RosBridge.phasePrompt === "land")
                 onClicked: RosBridge.respondPhase("ok")
             }
 
             QGCButton {
-                text: qsTr("Again")
-                visible: root._awaitingConfirmation && RosBridge.phasePrompt === "ok_again"
-                onClicked: RosBridge.respondPhase("again")
+                text: qsTr("NO")
+                visible: root._awaitingConfirmation && RosBridge.phasePrompt === "land"
+                onClicked: RosBridge.respondPhase("no")
             }
 
             QGCButton {
@@ -433,6 +563,15 @@ Rectangle {
                                                               : qsTr("제어권 회수 (HOLD)")
                 visible: root._linkOk
                 onClicked: RosBridge.abortMission()
+            }
+
+            QGCButton {
+                text: root._missionUploadRequested ? qsTr("Mission 업로드 중…") : qsTr("Mission 업로드")
+                enabled: !!root.planMasterController
+                         && !root._busy
+                         && !root.planMasterController.syncInProgress
+                         && !root._missionUploadRequested
+                onClicked: missionUploadDialog.openForLoad()
             }
 
             QGCButton {
