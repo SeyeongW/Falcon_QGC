@@ -52,7 +52,7 @@ from rclpy.qos import (
     qos_profile_sensor_data,
 )
 
-from std_msgs.msg import Empty, Int32, String
+from std_msgs.msg import Bool, Empty, Int32, String
 from mavros_msgs.msg import ExtendedState, State, WaypointList, WaypointReached
 from mavros_msgs.srv import SetMode
 
@@ -110,6 +110,12 @@ class PhaseOrchestrator(Node):
             10,
         )
         self.create_subscription(String, "command/run_action", self._on_run_action, 10)
+        self.create_subscription(
+            Bool,
+            "/mission/ready_for_land",
+            self._on_ready_for_land,
+            10,
+        )
         # GCS take-over: abort the running phase and hand control back (HOLD).
         self.create_subscription(Empty, "command/abort", self._on_abort, 10)
         self.set_mode_cli = self.create_client(SetMode, "/mavros/set_mode")
@@ -138,6 +144,7 @@ class PhaseOrchestrator(Node):
         self._done = set()      # completed phase ids
         self._running = None    # currently running phase id (or None)
         self._pending_confirmation = None
+        self._ready_for_land_seen = False
         self._mission_monitor_phase = None
         self._mission_completion_seq = -1
         self._mission_mode_confirmed = False
@@ -284,6 +291,20 @@ class PhaseOrchestrator(Node):
     def _on_state(self, m):
         self._mode = m.mode
         self._armed = m.armed
+
+    def _on_ready_for_land(self, msg):
+        """Show the Land confirmation as soon as a vision phase is aligned."""
+        if not bool(msg.data) or self._running not in (2, 4):
+            return
+
+        phase = self._phases.get(self._running)
+        if phase is None or getattr(phase, "ready_action", "none") != "land":
+            return
+        if self._ready_for_land_seen or self._land_handoff_phase is not None:
+            return
+
+        self._ready_for_land_seen = True
+        self._publish_phase_confirmation(phase)
 
     # --- current-section description (mainly for the phase-1 VTOL mission) ---
     def _section_desc(self):
@@ -925,6 +946,7 @@ class PhaseOrchestrator(Node):
         self._clear_mission_monitor()
         self._waiting_for_landing_phase = None
         self._clear_land_handoff()
+        self._ready_for_land_seen = False
         if getattr(phase, "start_action", "run_script") == "start_mission":
             self._start_uploaded_mission(n, phase)
             return
@@ -977,8 +999,16 @@ class PhaseOrchestrator(Node):
             confirm_after = getattr(phase, "confirm_after", "process_exit")
             confirmation = getattr(phase, "confirmation", "none")
             if confirmation == "land":
-                self._clear_land_handoff()
-                self._publish_phase_confirmation(phase)
+                # A ready_for_land signal may have already opened the dialog
+                # while the phase process was still running. Do not reopen it
+                # after the process exits, especially after Land was approved.
+                if self._land_handoff_phase != n:
+                    self._clear_land_handoff()
+                    ready_action = getattr(phase, "ready_action", "none")
+                    if self._pending_confirmation != "land" and (
+                        ready_action != "land" or self._ready_for_land_seen
+                    ):
+                        self._publish_phase_confirmation(phase)
             elif confirm_after == "landed":
                 self._clear_land_handoff()
                 if self._landed_state == 1:
@@ -1137,6 +1167,7 @@ class PhaseOrchestrator(Node):
 
         if response == "ok":
             if prompt == "land":
+                self._ready_for_land_seen = True
                 self._pending_confirmation = None
                 self._start_land_handoff(phase_id)
                 return
@@ -1152,6 +1183,7 @@ class PhaseOrchestrator(Node):
             self._done.add(phase_id)
             self._publish("done", 1.0, f"{title} 완료 확인됨", phase=phase_id)
         elif response == "no":
+            self._ready_for_land_seen = True
             # The phase code has already handed control back in Position mode.
             # Keep the decision pending so the operator can approve Land later
             # from the footer without re-running the alignment code.

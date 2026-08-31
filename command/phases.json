@@ -21,7 +21,8 @@
       "title": "Vision Based Land",
       "description": "Position 비행 · 영상 인식 · 3m 정렬 호버링",
       "script": "phase2.py",
-      "confirmation": "land"
+      "confirmation": "land",
+      "ready_action": "land"
     },
     {
       "id": 3,
@@ -38,7 +39,8 @@
       "description": "Position 비행 · 영상 인식 · 3m 정렬 호버링",
       "script": "phase4.py",
       "pending": true,
-      "confirmation": "land"
+      "confirmation": "land",
+      "ready_action": "land"
     }
   ]
 }

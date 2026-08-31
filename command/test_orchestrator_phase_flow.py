@@ -41,6 +41,7 @@ class OrchestratorPhaseFlowTest(unittest.TestCase):
         )
         self.node._running = 0
         self.node._pending_confirmation = None
+        self.node._ready_for_land_seen = False
         self.node._proc = None
         self.node._last_wp = -1
         self.node._uploaded_mission_last_wp = -1
@@ -81,7 +82,7 @@ class OrchestratorPhaseFlowTest(unittest.TestCase):
                 on_ok="complete",
                 confirmation="land",
                 confirm_after="process_exit",
-                ready_action="none",
+                ready_action="land",
                 retry_script=None,
                 retry_script_path=None,
             ),
@@ -114,6 +115,26 @@ class OrchestratorPhaseFlowTest(unittest.TestCase):
         self.node._publish = Mock()
         self.node._republish = Mock()
         self.node.get_logger = Mock(return_value=Mock())
+
+    def test_ready_for_land_opens_confirmation_before_phase_exit(self):
+        self.node._running = 2
+        self.node._status = {"state": "running"}
+
+        self.node._on_ready_for_land(SimpleNamespace(data=True))
+
+        self.assertEqual(self.node._pending_confirmation, "land")
+        self.assertTrue(self.node._ready_for_land_seen)
+        self.node._publish.assert_called_once()
+        self.assertEqual(self.node._publish.call_args.kwargs["prompt"], "land")
+
+    def test_ready_for_land_false_does_not_open_confirmation(self):
+        self.node._running = 2
+        self.node._status = {"state": "running"}
+
+        self.node._on_ready_for_land(SimpleNamespace(data=False))
+
+        self.assertIsNone(self.node._pending_confirmation)
+        self.node._publish.assert_not_called()
 
     def test_successful_phase_waits_for_configured_confirmation(self):
         phase = SimpleNamespace(
@@ -357,6 +378,7 @@ class OrchestratorPhaseFlowTest(unittest.TestCase):
         phase = self.node._phases[2]
         phase.script_path = COMMAND_DIR / "phase0.py"
         self.node._running = 2
+        self.node._ready_for_land_seen = True
 
         with patch.object(
             orchestrator.subprocess,

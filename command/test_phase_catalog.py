@@ -285,6 +285,7 @@ class PhaseCatalogTest(unittest.TestCase):
                     "description": "Position hover then operator-confirmed land",
                     "script": "phase2.py",
                     "confirmation": "land",
+                    "ready_action": "land",
                 }
             ]
         )
@@ -292,7 +293,7 @@ class PhaseCatalogTest(unittest.TestCase):
         phases = load_phase_catalog(self.command_dir)
 
         self.assertEqual(phases[2].confirmation, "land")
-        self.assertEqual(phases[2].ready_action, "none")
+        self.assertEqual(phases[2].ready_action, "land")
 
 
 if __name__ == "__main__":
