@@ -102,6 +102,10 @@
                 navigationHelpButton: false,
                 scene3DOnly: true,
                 sceneModePicker: false,
+                // Render only after a camera/entity/input update. This avoids
+                // spending a full GPU frame on an otherwise static map.
+                requestRenderMode: true,
+                maximumRenderTimeChange: Infinity,
                 selectionIndicator: false,
                 terrainProvider: providers[1],
                 timeline: false
@@ -109,9 +113,11 @@
 
             viewer = new Cesium.Viewer("cesiumContainer", options);
             viewer.scene.globe.depthTestAgainstTerrain = true;
-            viewer.scene.globe.enableLighting = true;
+            // Lighting and HDR are expensive on the integrated GPUs commonly
+            // used by the mission laptops; imagery/terrain remain unchanged.
+            viewer.scene.globe.enableLighting = false;
             viewer.scene.fog.enabled = true;
-            viewer.scene.highDynamicRange = true;
+            viewer.scene.highDynamicRange = false;
             viewer.scene.screenSpaceCameraController.minimumZoomDistance = 5;
             viewer.homeButton.viewModel.command.beforeExecute.addEventListener(
                 function (commandInfo) {
@@ -603,6 +609,7 @@
                          Number(snapshot.currentLegIndex));
         }
         updateVehicle(snapshot.vehicle || null);
+        viewer.scene.requestRender();
     }
 
     window.addEventListener("error", function (event) {

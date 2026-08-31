@@ -204,7 +204,8 @@ Item {
     }
 
     Timer {
-        interval: 250
+        // Keep vehicle motion reasonably smooth without flooding WebChannel.
+        interval: 150
         running: root.visible && !root.loadFailed
         repeat: true
         onTriggered: root.publishSnapshot()

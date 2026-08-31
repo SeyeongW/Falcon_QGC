@@ -1349,7 +1349,7 @@ class PhaseOrchestrator(Node):
             sec = self._section_desc()
             text = sec if sec else (self._last_log or f"Phase {self._running} 실행 중")
             if self._running in (2, 4):
-                text = f"Vision Based Land — {self._last_log or '영상 인식 · Position 정렬 중'}"
+                text = "Vision Based Land — OFFBOARD 영상 정렬 진행 중"
             self._publish("running", self._progress(), text, phase=self._running)
         else:
             self._republish()
