@@ -42,6 +42,8 @@ class OrchestratorPhaseFlowTest(unittest.TestCase):
         self.node._running = 0
         self.node._pending_confirmation = None
         self.node._ready_for_land_seen = False
+        self.node._land_confirm_sent = False
+        self.node.land_confirm_pub = Mock()
         self.node._proc = None
         self.node._last_wp = -1
         self.node._uploaded_mission_last_wp = -1
@@ -112,6 +114,7 @@ class OrchestratorPhaseFlowTest(unittest.TestCase):
         self.node._land_mode_last_request = 0.0
         self.node._failsafe_proc = None
         self.node.set_mode_cli = FakeSetModeClient()
+        self.node.mission_start_cli = FakeSetModeClient()
         self.node._publish = Mock()
         self.node._republish = Mock()
         self.node.get_logger = Mock(return_value=Mock())
@@ -374,6 +377,23 @@ class OrchestratorPhaseFlowTest(unittest.TestCase):
 
         self.assertEqual(self.node._uploaded_mission_last_wp, 3)
 
+    def test_mission_mode_also_sends_explicit_mission_start(self):
+        self.node._mission_monitor_phase = 1
+        self.node._mission_completion_seq = 3
+        self.node._mission_mode_request_started = 0.0
+        self.node._mission_mode_last_request = 0.0
+        self.node._mode = orchestrator.PX4_MISSION_MODE
+        self.node._mission_start_sent = False
+
+        self.node._tick_mission_monitor()
+
+        self.assertTrue(self.node._mission_start_sent)
+        self.assertEqual(len(self.node.mission_start_cli.requests), 1)
+        self.assertEqual(
+            self.node.mission_start_cli.requests[0].command,
+            orchestrator.MAV_CMD_MISSION_START,
+        )
+
     def test_successful_phase_two_exit_waits_for_land_confirmation(self):
         phase = self.node._phases[2]
         phase.script_path = COMMAND_DIR / "phase0.py"
@@ -398,7 +418,7 @@ class OrchestratorPhaseFlowTest(unittest.TestCase):
             prompt="land",
         )
 
-    def test_no_response_keeps_pending_position_hover_without_land_request(self):
+    def test_no_response_keeps_pending_offboard_hover_without_land_request(self):
         self.node._running = 2
         self.node._pending_confirmation = "land"
         self.node._status = {"state": "awaiting_confirmation"}
@@ -412,12 +432,12 @@ class OrchestratorPhaseFlowTest(unittest.TestCase):
         self.node._publish.assert_called_once_with(
             "awaiting_confirmation",
             -1.0,
-            "Vision Based Land Land 취소 — Position 호버링 유지",
+            "Vision Based Land Land 취소 — OFFBOARD 호버링 유지",
             phase=2,
             prompt="land",
         )
 
-    def test_ok_response_requests_auto_land(self):
+    def test_ok_response_starts_phase_offboard_landing(self):
         self.node._running = 2
         self.node._pending_confirmation = "land"
         self.node._status = {"state": "awaiting_confirmation"}
@@ -426,16 +446,14 @@ class OrchestratorPhaseFlowTest(unittest.TestCase):
 
         self.assertEqual(self.node._running, 2)
         self.assertIsNone(self.node._pending_confirmation)
-        self.assertEqual(self.node._land_handoff_phase, 2)
-        self.assertEqual(len(self.node.set_mode_cli.requests), 1)
-        self.assertEqual(
-            self.node.set_mode_cli.requests[0].custom_mode,
-            orchestrator.PX4_LAND_MODE,
-        )
+        self.assertIsNone(self.node._land_handoff_phase)
+        self.assertTrue(self.node._land_confirm_sent)
+        self.node.land_confirm_pub.publish.assert_called_once()
+        self.assertTrue(self.node.land_confirm_pub.publish.call_args.args[0].data)
         self.node._publish.assert_called_once_with(
             "running",
             -1.0,
-            "Land 승인됨 — AUTO.LAND 전환 요청",
+            "Land 승인됨 — Phase OFFBOARD 착륙 진행",
             phase=2,
         )
 

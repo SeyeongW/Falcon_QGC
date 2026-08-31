@@ -54,7 +54,7 @@ from rclpy.qos import (
 
 from std_msgs.msg import Bool, Empty, Int32, String
 from mavros_msgs.msg import ExtendedState, State, WaypointList, WaypointReached
-from mavros_msgs.srv import SetMode
+from mavros_msgs.srv import CommandLong, SetMode
 
 from common.phase_catalog import CatalogError, catalog_payload, load_phase_catalog
 
@@ -77,6 +77,7 @@ VTOL_FW = 4
 PX4_HOLD_MODE = "AUTO.LOITER"
 PX4_MISSION_MODE = "AUTO.MISSION"
 PX4_LAND_MODE = "AUTO.LAND"
+MAV_CMD_MISSION_START = 300
 MISSION_MODE_REQUEST_INTERVAL_SEC = 1.0
 MISSION_MODE_ENTRY_TIMEOUT_SEC = 15.0
 LAND_MODE_REQUEST_INTERVAL_SEC = 1.0
@@ -119,6 +120,15 @@ class PhaseOrchestrator(Node):
         # GCS take-over: abort the running phase and hand control back (HOLD).
         self.create_subscription(Empty, "command/abort", self._on_abort, 10)
         self.set_mode_cli = self.create_client(SetMode, "/mavros/set_mode")
+        self.mission_start_cli = self.create_client(
+            CommandLong,
+            "/mavros/cmd/command",
+        )
+        self.land_confirm_pub = self.create_publisher(
+            Bool,
+            "/mission/land_confirm",
+            10,
+        )
 
         # Live vehicle state used to describe the current mission section.
         self._last_wp = -1
@@ -150,6 +160,8 @@ class PhaseOrchestrator(Node):
         self._mission_mode_confirmed = False
         self._mission_mode_request_started = 0.0
         self._mission_mode_last_request = 0.0
+        self._mission_start_sent = False
+        self._land_confirm_sent = False
         self._waiting_for_landing_phase = None
         self._land_handoff_phase = None
         self._land_mode_request_started = 0.0
@@ -363,6 +375,21 @@ class PhaseOrchestrator(Node):
         self._mission_mode_last_request = time.monotonic()
         return True
 
+    def _request_mission_start(self):
+        """Explicitly start the uploaded mission after entering AUTO.MISSION."""
+        if not self.mission_start_cli.service_is_ready():
+            return False
+
+        request = CommandLong.Request()
+        request.broadcast = False
+        request.command = MAV_CMD_MISSION_START
+        request.confirmation = 0
+        request.param1 = 0.0  # first mission item
+        request.param2 = 0.0  # last mission item (autopilot decides)
+        self.mission_start_cli.call_async(request)
+        self._mission_start_sent = True
+        return True
+
     def _start_uploaded_mission(self, phase_id, phase):
         if self._uploaded_mission_last_wp < 0:
             if self._pending_confirmation is not None:
@@ -409,6 +436,7 @@ class PhaseOrchestrator(Node):
         self._mission_mode_confirmed = False
         self._mission_mode_request_started = now
         self._mission_mode_last_request = 0.0
+        self._mission_start_sent = False
         self._last_wp = -1
 
         self._request_mission_mode()
@@ -428,6 +456,8 @@ class PhaseOrchestrator(Node):
         now = time.monotonic()
         if self._mode == PX4_MISSION_MODE:
             self._mission_mode_confirmed = True
+            if not self._mission_start_sent:
+                self._request_mission_start()
             text = (
                 f"Mission 비행 중 — WP {self._last_wp}/{self._mission_completion_seq}"
                 if self._last_wp >= 0
@@ -496,6 +526,11 @@ class PhaseOrchestrator(Node):
             "Land 승인됨 — AUTO.LAND 전환 요청",
             phase=phase_id,
         )
+
+    def _publish_land_confirm(self, confirmed):
+        msg = Bool()
+        msg.data = bool(confirmed)
+        self.land_confirm_pub.publish(msg)
 
     def _tick_land_handoff(self):
         phase_id = self._land_handoff_phase
@@ -947,6 +982,8 @@ class PhaseOrchestrator(Node):
         self._waiting_for_landing_phase = None
         self._clear_land_handoff()
         self._ready_for_land_seen = False
+        self._land_confirm_sent = False
+        self._publish_land_confirm(False)
         if getattr(phase, "start_action", "run_script") == "start_mission":
             self._start_uploaded_mission(n, phase)
             return
@@ -1002,7 +1039,17 @@ class PhaseOrchestrator(Node):
                 # A ready_for_land signal may have already opened the dialog
                 # while the phase process was still running. Do not reopen it
                 # after the process exits, especially after Land was approved.
-                if self._land_handoff_phase != n:
+                if self._land_confirm_sent:
+                    self._running = None
+                    self._pending_confirmation = None
+                    self._done.add(n)
+                    self._publish(
+                        "done",
+                        1.0,
+                        f"{phase.title} OFFBOARD 착륙 완료",
+                        phase=n,
+                    )
+                elif self._land_handoff_phase != n:
                     self._clear_land_handoff()
                     ready_action = getattr(phase, "ready_action", "none")
                     if self._pending_confirmation != "land" and (
@@ -1169,7 +1216,18 @@ class PhaseOrchestrator(Node):
             if prompt == "land":
                 self._ready_for_land_seen = True
                 self._pending_confirmation = None
-                self._start_land_handoff(phase_id)
+                phase = self._phases.get(phase_id)
+                if phase is not None and getattr(phase, "ready_action", "none") == "land":
+                    self._land_confirm_sent = True
+                    self._publish_land_confirm(True)
+                    self._publish(
+                        "running",
+                        self._progress(),
+                        "Land 승인됨 — Phase OFFBOARD 착륙 진행",
+                        phase=phase_id,
+                    )
+                else:
+                    self._start_land_handoff(phase_id)
                 return
             if (
                 phase is not None
@@ -1184,13 +1242,13 @@ class PhaseOrchestrator(Node):
             self._publish("done", 1.0, f"{title} 완료 확인됨", phase=phase_id)
         elif response == "no":
             self._ready_for_land_seen = True
-            # The phase code has already handed control back in Position mode.
+            # The phase code remains in OFFBOARD hover while awaiting approval.
             # Keep the decision pending so the operator can approve Land later
             # from the footer without re-running the alignment code.
             self._publish(
                 "awaiting_confirmation",
                 self._progress(),
-                f"{title} Land 취소 — Position 호버링 유지",
+                f"{title} Land 취소 — OFFBOARD 호버링 유지",
                 phase=phase_id,
                 prompt="land",
             )

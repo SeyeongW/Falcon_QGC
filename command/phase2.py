@@ -1,59 +1,43 @@
 """
-phase2_visual_align_to_3m.py
+phase2_offboard_precision_landing.py
 
 목적
 ----
-조난자/착륙 표적을 이용한 Phase 2 비전 유도 제어기.
+조난자/착륙 표적을 이용한 Phase 2 비전 유도 + OFFBOARD 정밀 착륙 제어기.
 
-이 노드는 LAND 모드를 직접 인가하지 않는다.
-
-동작 순서
+핵심 설계
 ---------
-    1) VTOL이 ARMED, MULTICOPTER 상태이며 보통 AUTO.LOITER 상태에서 시작한다.
-    2) cam.py가 발행하는 /mission/target_info를 구독한다.
-    3) 속도/yaw-rate setpoint를 미리 송신한 뒤 OFFBOARD 모드로 진입한다.
-    4) 고도 3 m 이전:
-         - 조난자가 카메라 FOV 밖으로 나가지 않도록 유지한다.
-         - 수평 위치는 PID로 보정한다.
-         - 조난자 방향 정보가 유효하면 Yaw는 PI로 정렬한다.
-         - 3 m를 향해 하강한다.
-    5) 고도 3 m:
-         - 고도를 유지한다.
-         - 기체 코 쪽 카메라 오프셋을 pixel 기준 Landing Zone으로 보상한다.
-         - 조난자를 비교적 좁은 Landing Zone 안으로 유도한다.
-         - Yaw는 너무 엄격하지 않은 허용각 안으로 정렬한다.
-    6) 위치 + 방향 조건을 짧은 시간 동안 만족하면:
-         - READY_FOR_LAND = True를 발행한다.
-         - LAND는 수행하지 않는다.
-         - 3 m 고도와 정렬 상태를 계속 유지한다.
-    7) 이후 GCS에서 LAND 등의 모드를 직접 인가한다.
-       OFFBOARD가 해제되면 본 노드는 제어권을 넘기고 종료한다.
+    1) VTOL이 ARMED, MULTICOPTER 상태에서 시작한다.
+    2) /mission/target_info 기반 Vision PID/PI로 OFFBOARD 진입 후 3 m까지 접근한다.
+    3) 3 m에서 기존 COARSE PID -> FINE PI -> DEADBAND 정렬 기능을 그대로 사용한다.
+    4) 엄격한 위치/헤딩/고도/속도 조건이 서로 다른 Vision frame에서 연속으로 만족되면
+       /mission/ready_for_land = True를 latch한다.
+    5) READY 순간 Local X/Y/Yaw를 저장하고 READY_WAIT_GCS 상태로 전환한다.
+       - Vision 정렬 제어는 종료한다.
+       - 저장한 Local X/Y/Yaw를 유지한다.
+       - FINAL_ALIGN_ALT_M(기본 3 m)을 계속 유지하며 GCS 승인을 기다린다.
+    6) GCS에서 팝업 OK를 누르면 /mission/land_confirm = True를 수신한다.
+    7) 같은 OFFBOARD 안에서 OFFBOARD_LANDING 상태로 전환한다.
+       - 저장한 Local X/Y/Yaw를 유지하면서 Z축만 하강시킨다.
+       - 착륙 중 Vision XY/Yaw 정렬 제어는 사용하지 않는다.
+       - Z축은 Optical Flow 지면거리 우선으로 단계적으로 하강속도를 낮춘다.
+    8) /mavros/extended_state의 landed_state가 일정 시간 ON_GROUND이면 touchdown 완료로 판정한다.
 
-제어 구조
----------
-외부 제어기에서 생성하는 명령:
-    - 비전 PID 기반 수평 속도 명령
-    - 3 m 접근/유지를 위한 수직 속도 명령
-    - 비전 PI 기반 yaw-rate 명령
-
-PX4 내부 멀티콥터 제어기가 수평 속도 명령을 실제 Roll/Pitch 명령으로 변환한다.
-따라서 이 노드는 Raw Roll/Pitch/Thrust를 직접 명령하지 않으면서도,
-최종 XY 정렬 과정에서 Roll/Pitch를 자연스럽게 사용하게 된다.
+주의
+----
+- /mission/ready_for_land=True는 착륙 시작 명령이 아니라 GCS 팝업 표시용 준비 완료 신호다.
+- 실제 하강 시작은 GCS가 /mission/land_confirm=True를 보낸 뒤에만 수행한다.
+- AUTO.LAND 모드로 전환하지 않고 OFFBOARD 상태를 계속 유지한다.
+- 실제 비행 전에는 SITL에서 제어 부호, Optical Flow 거리, touchdown 판정을 먼저 검증한다.
 
 좌표계 가정
 -----------
-cam.py 기준:
+robo_jinheui.py 기준:
     영상 위쪽    = 기체 전방
     영상 오른쪽  = 기체 오른쪽
 
-따라서:
-    표적이 영상 오른쪽에 있음 -> 기체를 오른쪽으로 이동
-    표적이 영상 아래쪽에 있음 -> 표적이 기체 뒤쪽에 있으므로 기체를 뒤로 이동
-
-/mavros/local_position/pose는 ROS ENU 좌표계로 가정:
+/mavros/local_position/pose, /velocity_local은 ROS ENU로 가정:
     x = East, y = North, z = Up
-
-짐벌은 거의 수직 아래를 바라보고 있다고 가정한다.
 """
 
 import math
@@ -63,7 +47,7 @@ from dataclasses import dataclass
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, TwistStamped
-from mavros_msgs.msg import ExtendedState, State
+from mavros_msgs.msg import ExtendedState, OpticalFlowRad, State
 from mavros_msgs.srv import SetMode
 from rclpy.node import Node
 from rclpy.qos import (
@@ -99,24 +83,99 @@ OFFBOARD_ENTRY_TIMEOUT_SEC = 15.0
 
 
 # -----------------------------------------------------------------------------
-# 2. 최종 정렬 고도
+# 2. 실기 영상인식 인터페이스 / 제어 방향 부호
+# -----------------------------------------------------------------------------
+#
+# robo_jinheui.py의 /mission/target_info와 직접 호환한다.
+#
+# 핵심 인덱스:
+#   0  : detected
+#   3  : error_x_px
+#   4  : error_y_px
+#   5  : error_x_norm
+#   6  : error_y_norm
+#   7  : bearing_x_rad
+#   8  : bearing_y_rad
+#   17 : orientation_valid (= heading_valid)
+#   18 : heading_error_rad
+#
+# -------------------- 실기 제어 부호 --------------------
+#
+# 실제 카메라 영상 방향/짐벌 장착 방향이 시뮬레이션과 다를 경우
+# 아래 세 값만 +1.0 <-> -1.0으로 바꾸면 된다.
+#
+# X_CONTROL_SIGN
+#   +1.0 : 표적이 영상 오른쪽에 있으면 기체를 오른쪽으로 이동
+#   -1.0 : 반대로 이동
+#
+# Y_CONTROL_SIGN
+#   -1.0 : 표적이 영상 아래에 있으면 기체를 뒤로 이동
+#   +1.0 : 반대로 이동
+#
+# YAW_CONTROL_SIGN
+#   heading_error의 부호와 실제 기체 yaw 반응을 맞춘다.
+#
+# 실기 첫 시험은 반드시 낮은 속도에서
+# "오차가 줄어드는 방향으로 움직이는지" 확인한 뒤 사용한다.
+X_CONTROL_SIGN = +1.0
+Y_CONTROL_SIGN = -1.0
+YAW_CONTROL_SIGN = -1.0
+
+
+# -------------------- 타겟 장축 대비 최종 기체 헤딩 --------------------
+#
+# robo_jinheui.py의 heading_error_rad는
+# "영상 위쪽(기체 전방)=0°" 기준 타겟 장축의 상대각이다.
+#
+# 0.0°:
+#   기체 전방과 타겟 장축을 평행하게 정렬
+#
+# 90.0°:
+#   기체 전방과 타겟 장축을 직각으로 정렬
+#
+# PCA 장축은 180° 대칭이므로 +90°와 -90°는 동일한 '직각 정렬' 의미를 가진다.
+# 따라서 정확히 어느 쪽 90° 방향(좌/우)을 구분하는 용도로는 사용할 수 없다.
+DESIRED_HEADING_OFFSET_DEG = 0.0
+
+
+# -----------------------------------------------------------------------------
+# 3. 최종 정렬 고도
 # -----------------------------------------------------------------------------
 
-# 최종 정렬 고도 [m]. /mavros/local_position/pose의 z 값을 사용한다.
-# local z=0이 착륙 지면과 거의 일치한다고 가정한다.
+# 최종 정렬/호버링 목표 지면고도 [m].
+# Optical Flow가 유효할 때는 센서의 distance가 이 값이 되도록 제어한다.
 FINAL_ALIGN_ALT_M = 3.0
 
-# 현재 고도가 3 m 근처에 들어오면 FINAL_ALIGN 단계로 전환한다.
+# 착륙 지점 지면이 이륙 지점(local z=0)보다 얼마나 높거나 낮은지 [m].
+# 예) 착륙장이 이륙장보다 2 m 높음  -> +2.0
+#     착륙장이 이륙장보다 1 m 낮음  -> -1.0
+# Optical Flow가 유효할 때는 이 오프셋을 사용하지 않고 실제 distance=3 m를 사용한다.
+LANDING_GROUND_OFFSET_M = 0.0
+
+# Local Z 기준으로 Optical Flow 저고도 고도제어를 활성화할 기준.
+# 실제 local target = FINAL_ALIGN_ALT_M + LANDING_GROUND_OFFSET_M
+OPTICAL_FLOW_ENABLE_TOL_M = 0.20
+
+# 최종 정렬 고도 허용오차 [m].
 FINAL_ALIGN_ENTER_TOL_M = 0.20
 
-# 수직 접근 및 3 m 고도 유지를 위한 P 제어기:
-#   vz_cmd = ALTITUDE_KP * (FINAL_ALIGN_ALT_M - current_z)
+# Optical Flow 데이터 유효성 기준.
+OPTICAL_FLOW_MSG_TIMEOUT_SEC = 0.50
+OPTICAL_FLOW_MIN_DISTANCE_M = 0.05
+OPTICAL_FLOW_MAX_DISTANCE_M = 20.0
+OPTICAL_FLOW_MIN_QUALITY = 1
+
+# 수직 접근 및 3 m 고도 유지를 위한 P 제어기.
+# Optical Flow 사용 시:
+#   vz_cmd = ALTITUDE_KP * (FINAL_ALIGN_ALT_M - optical_flow_distance)
+# fallback 시:
+#   vz_cmd = ALTITUDE_KP * ((FINAL_ALIGN_ALT_M + LANDING_GROUND_OFFSET_M) - local_z)
 ALTITUDE_KP = 0.65
 
 # 최대 수직 속도 [m/s].
 # ROS ENU 기준: +z는 상승, -z는 하강.
-MAX_DESCEND_SPEED_MPS = 2.00
-MAX_CLIMB_SPEED_MPS = 0.80
+MAX_DESCEND_SPEED_MPS = 0.60
+MAX_CLIMB_SPEED_MPS = 0.30
 
 # -------------------------------------------------------------------------
 # FOV 오차에 따른 하강속도 연속 조절
@@ -140,13 +199,13 @@ DESCENT_MIN_SCALE = 0.15
 
 
 # -----------------------------------------------------------------------------
-# 3. 카메라 오프셋 - 픽셀 기준
+# 4. 카메라 오프셋 - 픽셀 기준
 # -----------------------------------------------------------------------------
 #
 # 실제 시스템에서는 카메라 장착 오프셋을 '미터'로 환산하지 않고,
 # 화면 중심으로부터 몇 pixel 떨어진 위치에 조난자가 와야 하는지 직접 지정한다.
 #
-# cam.py에서 이미
+# robo_jinheui.py에서 이미
 #   error_x_px = 조난자 중심 x - 영상 중심 x
 #   error_y_px = 조난자 중심 y - 영상 중심 y
 # 를 계산하므로 영상 해상도를 다시 알 필요가 없다.
@@ -157,7 +216,7 @@ DESCENT_MIN_SCALE = 0.15
 #
 # 예:
 #   LANDING_TARGET_OFFSET_Y_PX = 200.0
-#   -> 최종 정렬 시 조난자 중심을 영상 중심보다 95 px 아래에 위치시킨다.
+#   -> 최종 정렬 시 조난자 중심을 영상 중심보다 200 px 아래에 위치시킨다.
 #
 # 아래 값은 반드시 실제 기체/카메라 화면을 보고 조정할 것.
 LANDING_TARGET_OFFSET_X_PX = 0.0
@@ -165,7 +224,7 @@ LANDING_TARGET_OFFSET_Y_PX = 200.0
 
 
 # -----------------------------------------------------------------------------
-# 4. 3 m 최종 Landing Zone - 픽셀 기준
+# 5. 3 m 최종 Landing Zone - 픽셀 기준
 # -----------------------------------------------------------------------------
 #
 # Landing Zone 자체는 너무 넓게 잡지 않는다.
@@ -181,29 +240,56 @@ LANDING_ZONE_HALF_HEIGHT_PX = 40.0
 #   X: -40 ~ +40 px
 #   Y: +160 ~ +240 px
 #
-# 조난자 중심이 이 영역 안에 들어오면
-# FINAL_STOP_XY_INSIDE_LANDING_ZONE=True에 의해
-# XY PID 출력을 0으로 만들어 더 이상 목표점 (0, +200)을
-# 정밀하게 쫓지 않는다. 3 m에서의 앞뒤/좌우 출렁임 억제 목적이다.
+# 이 ±40 px 영역은 READY_FOR_LAND 위치 판정에 사용한다.
+# 실제 XY 제어를 완전히 0으로 만드는 Deadband는 아래 FINAL_DEADBAND_*에서
+# 별도로 더 작게 설정한다.
 
-# Yaw는 PCA/영상 노이즈 때문에 완벽한 0도를 요구하지 않는다.
-READY_HEADING_TOL_DEG = 12.0
+# 기존 Landing Zone(±40 px)은 최종 정렬 제어/모니터링에 유지한다.
+# 실제 착륙 시작 허가는 더 엄격한 별도 조건을 사용한다.
+READY_STRICT_X_PX = 25.0
+READY_STRICT_Y_PX = 25.0
+READY_STRICT_ALT_TOL_M = 0.10
+READY_STRICT_HEADING_TOL_DEG = 8.0
+READY_MAX_XY_SPEED_MPS = 0.10
+READY_MAX_ABS_VZ_MPS = 0.08
 
-# 위치 + Yaw + 3 m 조건은 짧게만 유지해도 READY로 판정한다.
-READY_STABLE_TIME_SEC = 0.70
+# 동일한 stale sample을 여러 번 세지 않고, 서로 다른 Vision frame이
+# 연속으로 이 횟수만큼 조건을 만족해야 READY를 latch한다.
+READY_REQUIRED_FRAMES = 2
 
-# READY가 한번 성립한 뒤 경계에서 True/False가 계속 흔들리는 것을 막는
-# 히스테리시스 여유값이다.
-# 주의: 이 값은 Landing Zone 자체를 넓히는 값이 아니다.
+# GCS와 합의된 READY 토픽은 그대로 유지한다.
+# True가 한 번 성립하면 착륙이 끝날 때까지 latch한다.
 READY_RELEASE_MARGIN_PX = 20.0
 READY_RELEASE_HEADING_TOL_DEG = 18.0
-
-# True이면 heading 추정이 유효하지 않을 경우 READY를 허용하지 않는다.
 REQUIRE_VALID_HEADING_FOR_READY = True
+
+# -------------------------------------------------------------------------
+# GCS 승인 후 OFFBOARD 정밀 착륙 설정
+# -------------------------------------------------------------------------
+# READY=True가 된 뒤에도 즉시 하강하지 않는다.
+# READY 순간 저장한 Local X/Y/Yaw와 FINAL_ALIGN_ALT_M을 유지한 채 대기하고,
+# GCS가 LAND_CONFIRM_TOPIC에 Bool(True)를 보내면 그때 OFFBOARD_LANDING을 시작한다.
+
+# READY 순간 저장한 Local X/Y/Yaw를 아래 P 제어로 끝까지 유지한다.
+# OFFBOARD_LANDING 진입 이후 Vision은 제어에 사용하지 않는다.
+LAND_LOCAL_XY_KP = 0.60
+LAND_LOCAL_XY_MAX_SPEED_MPS = 0.20
+LAND_LOCAL_YAW_KP = 1.00
+LAND_LOCAL_YAW_MAX_RATE_DEG_S = 10.0
+
+# 지면까지 높이에 따른 OFFBOARD 하강속도 [m/s]. ROS ENU이므로 실제 명령은 음수.
+LAND_DESCEND_SPEED_MPS = 0.25
+LAND_SLOW_ALT_M = 1.00
+LAND_SLOW_DESCEND_SPEED_MPS = 0.12
+LAND_CRAWL_ALT_M = 0.35
+LAND_CRAWL_DESCEND_SPEED_MPS = 0.06
+
+# landed_state가 ON_GROUND로 연속 유지되어야 touchdown 완료로 판정한다.
+TOUCHDOWN_CONFIRM_SEC = 0.50
 
 
 # -----------------------------------------------------------------------------
-# 5. 3 m 이전 FOV 유지
+# 6. 3 m 이전 FOV 유지
 # -----------------------------------------------------------------------------
 
 # 3 m 이전의 최우선 목표는 조난자를 카메라 화면 밖으로 놓치지 않는 것이다.
@@ -223,10 +309,10 @@ APPROACH_DEADBAND_NORM = 0.04
 
 
 # -----------------------------------------------------------------------------
-# 6. 수평 PID - 접근 단계 (> 3 m)
+# 7. 수평 PID - 접근 단계 (> 3 m)
 # -----------------------------------------------------------------------------
 #
-# PID 입력은 cam.py의 bearing_x/bearing_y 각도 오차 [rad]이다.
+# PID 입력은 robo_jinheui.py의 bearing_x/bearing_y 각도 오차 [rad]이다.
 # PID 출력은 기체 Body frame 기준 수평 속도 명령 [m/s]이다.
 #
 # X 제어:
@@ -249,7 +335,7 @@ APPROACH_MAX_XY_SPEED_MPS = 0.70
 
 
 # -----------------------------------------------------------------------------
-# 7. 3 m 최종 수평 정렬: PID -> 저게인 PI -> Deadband
+# 8. 3 m 최종 수평 정렬: PID -> 저게인 PI -> Deadband
 # -----------------------------------------------------------------------------
 #
 # 목표 pixel:
@@ -325,10 +411,10 @@ FINAL_DEADBAND_Y_PX = 25.0
 
 
 # -----------------------------------------------------------------------------
-# 8. Yaw PI 제어
+# 9. Yaw PI 제어
 # -----------------------------------------------------------------------------
 
-# cam.py의 heading_error_rad는 PCA 기반 조난자 장축 추정값이다.
+# robo_jinheui.py의 heading_error_rad는 PCA 기반 조난자 장축 추정값이다.
 YAW_KP = 1.20
 YAW_KI = 0.10
 YAW_I_LIMIT_RAD_S = math.radians(8.0)
@@ -337,18 +423,12 @@ YAW_I_LIMIT_RAD_S = math.radians(8.0)
 APPROACH_MAX_YAW_RATE_DEG_S = 20.0
 FINAL_MAX_YAW_RATE_DEG_S = 12.0
 
-# cam.py heading_error와 기체 yaw-rate 사이의 부호 매핑.
-#
-# cam.py에서 양의 heading error는 영상 오른쪽 방향이다.
-# ROS ENU에서 양의 yaw는 반시계 방향이다.
-# 따라서 현재 영상 좌표 규약에서는 초기값 -1.0을 사용한다.
-#
-# 시뮬레이션에서 반대 방향으로 회전하면 +1.0으로 바꾼다.
-YAW_CONTROL_SIGN = -1.0
+# Yaw 제어 방향 부호는 파일 상단의
+# YAW_CONTROL_SIGN 파라미터에서 조정한다.
 
 
 # -----------------------------------------------------------------------------
-# 9. PID D항 필터 / 표적 데이터 타임아웃
+# 10. PID D항 필터 / 표적 데이터 타임아웃
 # -----------------------------------------------------------------------------
 
 # D항 저역통과 필터:
@@ -388,26 +468,32 @@ HOLD_IF_TARGET_LOST = True
 
 
 # -----------------------------------------------------------------------------
-# 10. ROS2 토픽
+# 11. ROS2 토픽
 # -----------------------------------------------------------------------------
 
 TARGET_INFO_TOPIC = "/mission/target_info"
 STATE_TOPIC = "/mavros/state"
 EXTENDED_STATE_TOPIC = "/mavros/extended_state"
 LOCAL_POSE_TOPIC = "/mavros/local_position/pose"
+LOCAL_VELOCITY_TOPIC = "/mavros/local_position/velocity_local"
+OPTICAL_FLOW_TOPIC = "/mavros/px4flow/raw/optical_flow_rad"
 
 # MAVROS 속도 setpoint 인터페이스.
 VELOCITY_SETPOINT_TOPIC = "/mavros/setpoint_velocity/cmd_vel"
 
-# GCS 또는 모니터링용 READY 신호.
+# Phase2 -> GCS: 정렬 완료/착륙 준비 신호.
 READY_FOR_LAND_TOPIC = "/mission/ready_for_land"
 
+# GCS -> Phase2: 팝업에서 사용자가 Land/OK를 승인했음을 알리는 신호.
+# GCS는 READY=True를 받은 뒤 사용자가 OK를 누르면 Bool(True)를 한 번 발행하면 된다.
+LAND_CONFIRM_TOPIC = "/mission/land_confirm"
+
 
 # -----------------------------------------------------------------------------
-# 11. cam.py의 target_info 인덱스
+# 12. robo_jinheui.py의 target_info 인덱스
 # -----------------------------------------------------------------------------
 #
-# /mission/target_info Float32MultiArray 구성:
+# robo_jinheui.py /mission/target_info Float32MultiArray 구성:
 #   0  detected
 #   1  center_x_px
 #   2  center_y_px
@@ -418,7 +504,7 @@ READY_FOR_LAND_TOPIC = "/mission/ready_for_land"
 #   7  bearing_x_rad
 #   8  bearing_y_rad
 #   ...
-#   17 orientation_valid
+#   17 orientation_valid (= heading_valid)
 #   18 heading_error_rad
 #   19 heading_error_deg
 # =============================================================================
@@ -435,6 +521,7 @@ IDX_HEADING_ERROR_RAD = 18
 
 
 MAV_VTOL_STATE_MC = 3
+MAV_LANDED_STATE_ON_GROUND = 1
 
 
 def clamp(value: float, lower: float, upper: float) -> float:
@@ -446,6 +533,25 @@ def wrap_pi(angle_rad: float) -> float:
         angle_rad -= 2.0 * math.pi
     while angle_rad < -math.pi:
         angle_rad += 2.0 * math.pi
+    return angle_rad
+
+
+def wrap_axis_angle_rad(angle_rad: float) -> float:
+    """
+    PCA 장축은 180° 대칭이므로 각도 오차를 [-90°, +90°] 범위로 정규화한다.
+
+    예:
+        +100° -> -80°
+        -100° -> +80°
+
+    이를 통해 0°/90° 목표 헤딩 모두 같은 방식으로 안정적으로 제어할 수 있다.
+    """
+    while angle_rad > math.pi / 2.0:
+        angle_rad -= math.pi
+
+    while angle_rad < -math.pi / 2.0:
+        angle_rad += math.pi
+
     return angle_rad
 
 
@@ -536,8 +642,19 @@ class Phase2VisionAlignTo3m(Node):
         self.state = None
         self.extended_state = None
         self.local_pose = None
+        self.local_velocity = None
         self.target = TargetSample()
         self.vision_filter_initialized = False
+
+        # Optical Flow 지면거리 상태.
+        self.optical_flow_distance_m = None
+        self.optical_flow_quality = 0
+        self.optical_flow_receive_monotonic = 0.0
+
+        # Local Z가 착륙장 오프셋을 반영한 3 m 목표 근처에 최초 진입하면 True.
+        # 이후에는 Optical Flow가 유효할 때마다 지면거리 기준 3 m 제어를 우선한다.
+        self.optical_flow_stage_enabled = False
+        self.last_altitude_source = "LOCAL_Z"
 
         # PX4에 실제로 보낸 직전 수평 속도 명령.
         # PID 출력 변화가 급격해도 이 값을 기준으로 slew-rate를 제한한다.
@@ -545,8 +662,18 @@ class Phase2VisionAlignTo3m(Node):
         self.last_cmd_vy_north = 0.0
 
         self.phase = "WAIT"
-        self.ready_since = None
+        self.ready_since = None  # legacy/manual-wait path compatibility
         self.ready_latched = False
+        self.ready_frame_count = 0
+        self.last_ready_vision_stamp = 0.0
+        self.land_confirmed = False
+
+        # OFFBOARD landing fallback reference (READY 확정 순간 저장).
+        self.land_hold_x = None
+        self.land_hold_y = None
+        self.land_hold_yaw = None
+        self.touchdown_since = None
+        self.mission_complete = False
 
         self.last_control_monotonic = time.monotonic()
         self.last_log_monotonic = 0.0
@@ -577,9 +704,27 @@ class Phase2VisionAlignTo3m(Node):
             qos,
         )
         self.create_subscription(
+            TwistStamped,
+            LOCAL_VELOCITY_TOPIC,
+            self.local_velocity_callback,
+            qos,
+        )
+        self.create_subscription(
+            OpticalFlowRad,
+            OPTICAL_FLOW_TOPIC,
+            self.optical_flow_callback,
+            qos,
+        )
+        self.create_subscription(
             Float32MultiArray,
             TARGET_INFO_TOPIC,
             self.target_callback,
+            10,
+        )
+        self.create_subscription(
+            Bool,
+            LAND_CONFIRM_TOPIC,
+            self.land_confirm_callback,
             10,
         )
 
@@ -683,6 +828,29 @@ class Phase2VisionAlignTo3m(Node):
     def local_pose_callback(self, msg: PoseStamped):
         self.local_pose = msg
 
+    def local_velocity_callback(self, msg: TwistStamped):
+        self.local_velocity = msg
+
+    def optical_flow_callback(self, msg: OpticalFlowRad):
+        # PX4FLOW/MAVROS OpticalFlowRad의 distance는 센서에서 지면까지의 거리 [m].
+        self.optical_flow_distance_m = float(msg.distance)
+        self.optical_flow_quality = int(msg.quality)
+        self.optical_flow_receive_monotonic = time.monotonic()
+
+    def land_confirm_callback(self, msg: Bool):
+        """GCS 팝업에서 사용자가 Land/OK를 승인했을 때 착륙 시작을 latch한다."""
+        if not bool(msg.data):
+            return
+
+        # READY가 확정되고 실제로 3 m 대기 상태일 때만 승인을 받아들인다.
+        # READY 이전에 들어온 stale/오발행 True는 무시한다.
+        if self.ready_latched and self.phase == "READY_WAIT_GCS":
+            if not self.land_confirmed:
+                self.get_logger().warn(
+                    "[PHASE 2] GCS LAND CONFIRM received -> start OFFBOARD landing"
+                )
+            self.land_confirmed = True
+
     def target_callback(self, msg: Float32MultiArray):
         data = list(msg.data)
 
@@ -777,6 +945,65 @@ class Phase2VisionAlignTo3m(Node):
             return None
         return float(self.local_pose.pose.position.z)
 
+    def local_final_target_altitude_m(self) -> float:
+        # Optical Flow가 없을 때 사용하는 Local Z fallback 목표.
+        return float(FINAL_ALIGN_ALT_M + LANDING_GROUND_OFFSET_M)
+
+    def optical_flow_is_fresh(self) -> bool:
+        if self.optical_flow_receive_monotonic <= 0.0:
+            return False
+        return (
+            time.monotonic() - self.optical_flow_receive_monotonic
+            <= OPTICAL_FLOW_MSG_TIMEOUT_SEC
+        )
+
+    def optical_flow_is_usable(self) -> bool:
+        if not self.optical_flow_is_fresh():
+            return False
+
+        if self.optical_flow_distance_m is None:
+            return False
+
+        distance = float(self.optical_flow_distance_m)
+
+        if not math.isfinite(distance):
+            return False
+
+        if (
+            distance < OPTICAL_FLOW_MIN_DISTANCE_M
+            or distance > OPTICAL_FLOW_MAX_DISTANCE_M
+        ):
+            return False
+
+        if self.optical_flow_quality < OPTICAL_FLOW_MIN_QUALITY:
+            return False
+
+        return True
+
+    def altitude_control_state(self, local_alt_m: float):
+        """
+        반환:
+            measured_alt_m : 현재 고도제어에 사용하는 측정값
+            target_alt_m   : 해당 측정 기준 목표값
+            source         : 'OPTICAL_FLOW' 또는 'LOCAL_Z'
+
+        optical_flow_stage_enabled가 된 이후:
+          - Optical Flow 정상 -> distance 기준 3 m
+          - Optical Flow 비정상 -> Local Z 기준 3 m + 착륙장 오프셋
+        """
+        if self.optical_flow_stage_enabled and self.optical_flow_is_usable():
+            return (
+                float(self.optical_flow_distance_m),
+                float(FINAL_ALIGN_ALT_M),
+                "OPTICAL_FLOW",
+            )
+
+        return (
+            float(local_alt_m),
+            self.local_final_target_altitude_m(),
+            "LOCAL_Z",
+        )
+
     def current_yaw_rad(self):
         if self.local_pose is None:
             return None
@@ -794,6 +1021,25 @@ class Phase2VisionAlignTo3m(Node):
     def reset_yaw_controller(self):
         self.yaw_pi.reset()
 
+    def desired_heading_error_rad(self) -> float:
+        """
+        현재 타겟 장축과 사용자가 원하는 최종 기체 헤딩 사이의 제어 오차.
+
+        robo_jinheui.py의 heading_error_rad는 카메라/영상 기준 상대각이며,
+        PCA 장축 특성상 180° 방향성은 구분하지 않는다.
+
+        DESIRED_HEADING_OFFSET_DEG:
+            0°  -> 타겟 장축과 평행
+            90° -> 타겟 장축과 직각
+        """
+        desired_rad = math.radians(
+            DESIRED_HEADING_OFFSET_DEG
+        )
+
+        return wrap_axis_angle_rad(
+            self.target.heading_error_rad - desired_rad
+        )
+
     # =========================================================================
     # 카메라 픽셀 오프셋 / Landing Zone
     # =========================================================================
@@ -802,7 +1048,7 @@ class Phase2VisionAlignTo3m(Node):
         """
         최종 정렬 시 조난자가 위치해야 하는 영상 중심 기준 pixel 오프셋.
 
-        cam.py의 error_x_px/error_y_px 자체가 이미 영상 중심을 0으로 한
+        robo_jinheui.py의 error_x_px/error_y_px 자체가 이미 영상 중심을 0으로 한
         상대 pixel 좌표이므로 별도의 영상 해상도 정보가 필요하지 않다.
         """
         return (
@@ -845,6 +1091,134 @@ class Phase2VisionAlignTo3m(Node):
             <= LANDING_ZONE_HALF_HEIGHT_PX + READY_RELEASE_MARGIN_PX
         )
 
+    def current_velocity_enu(self):
+        if self.local_velocity is None:
+            return None
+        return (
+            float(self.local_velocity.twist.linear.x),
+            float(self.local_velocity.twist.linear.y),
+            float(self.local_velocity.twist.linear.z),
+        )
+
+    def strict_ready_conditions(self, altitude: float, altitude_target: float):
+        """엄격한 착륙 허가 조건과 세부 상태를 반환한다."""
+        dx_px, dy_px = self.landing_zone_error_px()
+
+        position_ok = (
+            abs(dx_px) <= READY_STRICT_X_PX
+            and abs(dy_px) <= READY_STRICT_Y_PX
+        )
+
+        if self.target.orientation_valid:
+            heading_ok = (
+                abs(math.degrees(self.desired_heading_error_rad()))
+                <= READY_STRICT_HEADING_TOL_DEG
+            )
+        else:
+            heading_ok = not REQUIRE_VALID_HEADING_FOR_READY
+
+        altitude_ok = abs(altitude - altitude_target) <= READY_STRICT_ALT_TOL_M
+
+        vel = self.current_velocity_enu()
+        if vel is None:
+            speed_ok = False
+            xy_speed = float("inf")
+            abs_vz = float("inf")
+        else:
+            vx, vy, vz = vel
+            xy_speed = math.hypot(vx, vy)
+            abs_vz = abs(vz)
+            speed_ok = (
+                xy_speed <= READY_MAX_XY_SPEED_MPS
+                and abs_vz <= READY_MAX_ABS_VZ_MPS
+            )
+
+        return (
+            position_ok and heading_ok and altitude_ok and speed_ok,
+            position_ok,
+            heading_ok,
+            altitude_ok,
+            speed_ok,
+            xy_speed,
+            abs_vz,
+        )
+
+    def capture_landing_reference(self):
+        """READY 순간의 Local X/Y/Yaw를 Vision 소실 fallback 기준점으로 저장한다."""
+        if self.local_pose is None:
+            return False
+
+        yaw = self.current_yaw_rad()
+        if yaw is None:
+            return False
+
+        self.land_hold_x = float(self.local_pose.pose.position.x)
+        self.land_hold_y = float(self.local_pose.pose.position.y)
+        self.land_hold_yaw = float(yaw)
+        return True
+
+    def landing_height_agl_m(self, local_alt_m: float):
+        """착륙 중 지면까지 높이. Optical Flow 우선, 없으면 Local Z fallback."""
+        if self.optical_flow_is_usable():
+            return max(0.0, float(self.optical_flow_distance_m)), "OPTICAL_FLOW"
+
+        return max(0.0, float(local_alt_m - LANDING_GROUND_OFFSET_M)), "LOCAL_Z"
+
+    def landing_vertical_speed_command(self, height_agl_m: float) -> float:
+        """PX4 LAND와 유사하게 지면 접근 시 하강속도를 단계적으로 낮춘다."""
+        if height_agl_m <= LAND_CRAWL_ALT_M:
+            return -LAND_CRAWL_DESCEND_SPEED_MPS
+        if height_agl_m <= LAND_SLOW_ALT_M:
+            return -LAND_SLOW_DESCEND_SPEED_MPS
+        return -LAND_DESCEND_SPEED_MPS
+
+    def local_hold_xy_command(self):
+        if (
+            self.local_pose is None
+            or self.land_hold_x is None
+            or self.land_hold_y is None
+        ):
+            return 0.0, 0.0
+
+        ex = self.land_hold_x - float(self.local_pose.pose.position.x)
+        ey = self.land_hold_y - float(self.local_pose.pose.position.y)
+
+        vx = clamp(
+            LAND_LOCAL_XY_KP * ex,
+            -LAND_LOCAL_XY_MAX_SPEED_MPS,
+            LAND_LOCAL_XY_MAX_SPEED_MPS,
+        )
+        vy = clamp(
+            LAND_LOCAL_XY_KP * ey,
+            -LAND_LOCAL_XY_MAX_SPEED_MPS,
+            LAND_LOCAL_XY_MAX_SPEED_MPS,
+        )
+        return vx, vy
+
+    def local_hold_yaw_command(self, current_yaw: float) -> float:
+        if self.land_hold_yaw is None:
+            return 0.0
+
+        err = wrap_pi(self.land_hold_yaw - current_yaw)
+        limit = math.radians(LAND_LOCAL_YAW_MAX_RATE_DEG_S)
+        return clamp(LAND_LOCAL_YAW_KP * err, -limit, limit)
+
+    def touchdown_is_confirmed(self, now: float) -> bool:
+        on_ground = (
+            self.extended_state is not None
+            and self.extended_state.landed_state == MAV_LANDED_STATE_ON_GROUND
+        )
+
+        if not on_ground:
+            self.touchdown_since = None
+            return False
+
+        if self.touchdown_since is None:
+            self.touchdown_since = now
+            return False
+
+        return (now - self.touchdown_since) >= TOUCHDOWN_CONFIRM_SEC
+
     # =========================================================================
     # CONTROL LAW
     # =========================================================================
@@ -870,14 +1244,23 @@ class Phase2VisionAlignTo3m(Node):
 
         return vx_east, vy_north
 
-    def altitude_velocity_command(self, current_alt_m: float) -> float:
-        error_z = FINAL_ALIGN_ALT_M - current_alt_m
+    def altitude_velocity_command(
+        self,
+        measured_alt_m: float,
+        target_alt_m: float,
+        local_alt_m: float,
+    ) -> float:
+        error_z = target_alt_m - measured_alt_m
 
         vz = ALTITUDE_KP * error_z
 
         max_descend = MAX_DESCEND_SPEED_MPS
 
-        if current_alt_m <= APPROACH_SLOWDOWN_ALT_M:
+        # 속도 완화 판단은 local z가 아니라 실제 지면거리(Optical Flow)가
+        # 사용 중이면 그 값을 우선한다.
+        slowdown_alt_m = measured_alt_m if self.last_altitude_source == "OPTICAL_FLOW" else local_alt_m
+
+        if slowdown_alt_m <= APPROACH_SLOWDOWN_ALT_M:
             max_descend = min(
                 max_descend,
                 NEAR_GROUND_MAX_DESCEND_SPEED_MPS,
@@ -894,7 +1277,9 @@ class Phase2VisionAlignTo3m(Node):
             self.reset_yaw_controller()
             return 0.0
 
-        heading_error = wrap_pi(self.target.heading_error_rad)
+        # 타겟 장축 자체를 0°로 맞추는 것이 아니라,
+        # DESIRED_HEADING_OFFSET_DEG에 지정한 목표 상대각으로 정렬한다.
+        heading_error = self.desired_heading_error_rad()
 
         yaw_rate = YAW_CONTROL_SIGN * self.yaw_pi.update(
             heading_error,
@@ -927,24 +1312,35 @@ class Phase2VisionAlignTo3m(Node):
             by = 0.0
             self.approach_y_pid.reset()
 
-        # 표적이 영상 오른쪽이면 기체를 오른쪽으로 이동한다.
-        right_cmd = self.approach_x_pid.update(bx, dt)
+        # 실기 영상/짐벌 방향 차이는 상단 X/Y_CONTROL_SIGN으로 조정한다.
+        right_cmd = (
+            X_CONTROL_SIGN
+            * self.approach_x_pid.update(bx, dt)
+        )
 
-        # 표적이 영상 중심 아래쪽이면 기체 기준 뒤쪽이므로 기체를 뒤로 이동한다.
-        forward_cmd = -self.approach_y_pid.update(by, dt)
+        forward_cmd = (
+            Y_CONTROL_SIGN
+            * self.approach_y_pid.update(by, dt)
+        )
 
         # HARD FOV 경계에 가까우면 해당 축을 최대 속도로 보정한다.
         # 필요한 방향으로 해당 축 제어 출력을 포화시킨다.
         if abs(self.target.error_x_norm) >= FOV_HARD_LIMIT_NORM:
-            right_cmd = math.copysign(
-                APPROACH_MAX_XY_SPEED_MPS,
-                self.target.error_x_norm,
+            right_cmd = (
+                X_CONTROL_SIGN
+                * math.copysign(
+                    APPROACH_MAX_XY_SPEED_MPS,
+                    self.target.error_x_norm,
+                )
             )
 
         if abs(self.target.error_y_norm) >= FOV_HARD_LIMIT_NORM:
-            forward_cmd = -math.copysign(
-                APPROACH_MAX_XY_SPEED_MPS,
-                self.target.error_y_norm,
+            forward_cmd = (
+                Y_CONTROL_SIGN
+                * math.copysign(
+                    APPROACH_MAX_XY_SPEED_MPS,
+                    self.target.error_y_norm,
+                )
             )
 
         return forward_cmd, right_cmd
@@ -1028,11 +1424,14 @@ class Phase2VisionAlignTo3m(Node):
         # 3. FINE PI
         # ------------------------------------------------------------
         if self.final_xy_stage == "FINE":
-            # 표적이 목표보다 오른쪽(+x)이면 기체를 오른쪽으로 이동.
-            right_cmd = self.fine_x_pi.update(error_x_px, dt)
-
-            # 표적이 목표보다 아래(+y)이면 기체 기준 뒤쪽이므로 뒤로 이동.
-            forward_cmd = -self.fine_y_pi.update(error_y_px, dt)
+            right_cmd = (
+                X_CONTROL_SIGN
+                * self.fine_x_pi.update(error_x_px, dt)
+            )
+            forward_cmd = (
+                Y_CONTROL_SIGN
+                * self.fine_y_pi.update(error_y_px, dt)
+            )
 
             return forward_cmd, right_cmd
 
@@ -1041,8 +1440,14 @@ class Phase2VisionAlignTo3m(Node):
         # ------------------------------------------------------------
         self.final_xy_stage = "COARSE"
 
-        right_cmd = self.final_x_pid.update(error_x_px, dt)
-        forward_cmd = -self.final_y_pid.update(error_y_px, dt)
+        right_cmd = (
+            X_CONTROL_SIGN
+            * self.final_x_pid.update(error_x_px, dt)
+        )
+        forward_cmd = (
+            Y_CONTROL_SIGN
+            * self.final_y_pid.update(error_y_px, dt)
+        )
 
         return forward_cmd, right_cmd
 
@@ -1084,6 +1489,162 @@ class Phase2VisionAlignTo3m(Node):
         self.last_cmd_vy_north = vy_limited
 
         return vx_limited, vy_limited
+
+    def control_ready_wait_gcs(
+        self,
+        dt: float,
+        local_altitude: float,
+        yaw: float,
+        altitude: float,
+        altitude_target: float,
+    ):
+        """
+        READY=True 이후 GCS 승인을 기다리는 3 m 호버 상태.
+
+        - Vision 제어를 더 이상 사용하지 않는다.
+        - READY 순간 캡처한 Local X/Y/Yaw를 고정한다.
+        - FINAL_ALIGN_ALT_M을 계속 유지한다.
+        - /mission/land_confirm=True가 들어오면 다음 cycle부터 OFFBOARD_LANDING으로 전환한다.
+        """
+        vx_east, vy_north = self.local_hold_xy_command()
+        vx_east, vy_north = self.apply_xy_slew_rate(
+            vx_east, vy_north, dt, final_align=True
+        )
+        yaw_rate = self.local_hold_yaw_command(yaw)
+
+        # Optical Flow가 유효하면 지면거리 FINAL_ALIGN_ALT_M 유지,
+        # 아니면 기존 Local Z fallback 목표를 유지한다.
+        vz_up = self.altitude_velocity_command(
+            measured_alt_m=altitude,
+            target_alt_m=altitude_target,
+            local_alt_m=local_altitude,
+        )
+
+        # GCS 합의: 정렬이 해제되면 ready_for_land=False.
+        # 대기 중 Vision은 제어에는 쓰지 않고 정렬 유효성 감시에만 사용한다.
+        target_ok = self.target_is_usable()
+        position_ok = target_ok and self.inside_ready_release_zone()
+
+        if target_ok and self.target.orientation_valid:
+            heading_ok = (
+                abs(math.degrees(self.desired_heading_error_rad()))
+                <= READY_RELEASE_HEADING_TOL_DEG
+            )
+        else:
+            heading_ok = target_ok and (not REQUIRE_VALID_HEADING_FOR_READY)
+
+        altitude_ok = abs(altitude - altitude_target) <= FINAL_ALIGN_ENTER_TOL_M
+
+        vel = self.current_velocity_enu()
+        if vel is None:
+            speed_ok = False
+        else:
+            cur_vx, cur_vy, cur_vz = vel
+            speed_ok = (
+                math.hypot(cur_vx, cur_vy) <= READY_MAX_XY_SPEED_MPS + 0.05
+                and abs(cur_vz) <= READY_MAX_ABS_VZ_MPS + 0.04
+            )
+
+        ready_still_valid = position_ok and heading_ok and altitude_ok and speed_ok
+
+        if not ready_still_valid:
+            self.get_logger().warn(
+                "[PHASE 2] READY released while waiting GCS -> return FINAL_ALIGN"
+            )
+            self.ready_latched = False
+            self.land_confirmed = False
+            self.ready_frame_count = 0
+            self.last_ready_vision_stamp = self.target.receive_monotonic
+            self.phase = "FINAL_ALIGN"
+            self.reset_horizontal_controllers()
+            self.reset_yaw_controller()
+            self.publish_ready(False)
+            self.publish_zero_setpoint()
+            return
+
+        self.publish_ready(True)
+
+        if self.land_confirmed:
+            self.phase = "OFFBOARD_LANDING"
+            self.touchdown_since = None
+            self.reset_horizontal_controllers()
+            self.reset_yaw_controller()
+            # 승인 받은 동일 cycle에는 3m snapshot hold를 유지하고,
+            # 다음 20 Hz cycle부터 수직 하강을 시작한다.
+            self.publish_velocity_setpoint(vx_east, vy_north, 0.0, yaw_rate)
+            return
+
+        self.publish_velocity_setpoint(vx_east, vy_north, vz_up, yaw_rate)
+        self.log_control(
+            altitude=altitude,
+            phase="READY_WAIT_GCS/SNAPSHOT_HOVER",
+            target_ok=False,
+            position_ok=True,
+            heading_ok=True,
+            ready_now=True,
+            desired_px=self.desired_final_target_px(),
+            v_cmd=(vx_east, vy_north, vz_up),
+            yaw_rate=yaw_rate,
+            descent_scale=0.0,
+        )
+
+    def control_offboard_landing(
+        self,
+        now: float,
+        dt: float,
+        local_altitude: float,
+        yaw: float,
+    ):
+        """
+        READY 순간에 저장한 Local X/Y/Yaw를 고정 기준점으로 사용해 착륙한다.
+
+        중요한 점:
+        - OFFBOARD_LANDING 진입 후에는 Vision XY/Yaw 제어를 다시 사용하지 않는다.
+        - X/Y는 READY 순간 저장한 local 위치를 P 제어로 유지한다.
+        - Yaw도 READY 순간 저장한 heading을 유지한다.
+        - Z축만 Optical Flow/Local Z 기반 단계 하강한다.
+
+        즉 FINAL_ALIGN_ALT_M에서 '정렬된 상태를 스냅샷'으로 저장한 뒤,
+        그 스냅샷 위치/방향을 유지하면서 수직으로 내려오는 구조다.
+        """
+        if self.touchdown_is_confirmed(now):
+            self.phase = "TOUCHDOWN"
+            self.mission_complete = True
+            self.publish_ready(False)
+            self.publish_zero_setpoint()
+            self.get_logger().warn(
+                "[PHASE 2] TOUCHDOWN CONFIRMED -> OFFBOARD landing complete"
+            )
+            return
+
+        # 착륙 중 Vision은 참고/로그에도 제어 입력으로 사용하지 않는다.
+        # READY 순간 캡처한 Local X/Y/Yaw만 이용한다.
+        vx_east, vy_north = self.local_hold_xy_command()
+        vx_east, vy_north = self.apply_xy_slew_rate(
+            vx_east, vy_north, dt, final_align=True
+        )
+        yaw_rate = self.local_hold_yaw_command(yaw)
+
+        height_agl, height_source = self.landing_height_agl_m(local_altitude)
+        self.last_altitude_source = height_source
+        vz_up = self.landing_vertical_speed_command(height_agl)
+
+        # READY는 착륙 시작 허가가 이미 확정됐다는 latch 의미로 touchdown 전까지 유지한다.
+        self.publish_ready(True)
+        self.publish_velocity_setpoint(vx_east, vy_north, vz_up, yaw_rate)
+
+        self.log_control(
+            altitude=height_agl,
+            phase="OFFBOARD_LANDING/SNAPSHOT_HOLD",
+            target_ok=False,
+            position_ok=True,
+            heading_ok=True,
+            ready_now=True,
+            desired_px=self.desired_final_target_px(),
+            v_cmd=(vx_east, vy_north, vz_up),
+            yaw_rate=yaw_rate,
+            descent_scale=1.0,
+        )
 
     # =========================================================================
     # SETPOINT / MODE
@@ -1176,10 +1737,11 @@ class Phase2VisionAlignTo3m(Node):
 
             state_ok = self.state is not None and self.state.connected
             pose_ok = self.local_pose is not None
+            vel_ok = self.local_velocity is not None
             ext_ok = self.extended_state is not None
             target_rx_ok = self.target.receive_monotonic > 0.0
 
-            if state_ok and pose_ok and ext_ok and target_rx_ok:
+            if state_ok and pose_ok and vel_ok and ext_ok and target_rx_ok:
                 self.get_logger().info(
                     f"[PHASE 2] Initial data OK | "
                     f"mode={self.state.mode} | "
@@ -1192,7 +1754,7 @@ class Phase2VisionAlignTo3m(Node):
             if time.monotonic() - start > timeout_sec:
                 self.get_logger().error(
                     "[PHASE 2] Initial data timeout | "
-                    f"state={state_ok} pose={pose_ok} ext={ext_ok} "
+                    f"state={state_ok} pose={pose_ok} vel={vel_ok} ext={ext_ok} "
                     f"target_rx={target_rx_ok}"
                 )
                 return False
@@ -1249,52 +1811,102 @@ class Phase2VisionAlignTo3m(Node):
     # =========================================================================
 
     def control_timer_callback(self):
-        # run()이 초기화를 담당하며, phase가 활성화된 뒤에만 제어를 수행한다.
-        if self.phase not in ("APPROACH", "FINAL_ALIGN", "READY_WAIT_GCS"):
+        # run()이 초기화를 담당하며 phase가 활성화된 뒤에만 제어한다.
+        active_phases = (
+            "APPROACH",
+            "FINAL_ALIGN",
+            "READY_WAIT_GCS",
+            "OFFBOARD_LANDING",
+            "TOUCHDOWN",
+        )
+        if self.phase not in active_phases:
             return
 
         now = time.monotonic()
-        dt = now - self.last_control_monotonic
+        dt = clamp(now - self.last_control_monotonic, 0.01, 0.20)
         self.last_control_monotonic = now
-        dt = clamp(dt, 0.01, 0.20)
 
         if self.state is None or self.local_pose is None:
             return
 
-        # GCS/수동 모드 변경은 제어권 인계로 간주하며 새 모드와 경쟁하지 않는다.
+        # 다른 모드가 실제로 선택된 뒤에는 새 모드와 setpoint 경쟁을 하지 않는다.
         if self.state.mode != "OFFBOARD":
-            self.publish_ready(False)
             return
 
-        altitude = self.current_altitude_m()
-        yaw = self.current_yaw_rad()
+        if self.phase == "TOUCHDOWN":
+            self.publish_ready(False)
+            self.publish_zero_setpoint()
+            return
 
-        if altitude is None or yaw is None:
+        local_altitude = self.current_altitude_m()
+        yaw = self.current_yaw_rad()
+        if local_altitude is None or yaw is None:
+            return
+
+        # 착륙장 고도 오프셋을 반영한 Local Z 목표 근처에 최초 진입하면
+        # Optical Flow 지면거리 사용을 활성화한다.
+        local_final_target = self.local_final_target_altitude_m()
+        if (
+            not self.optical_flow_stage_enabled
+            and abs(local_altitude - local_final_target)
+            <= OPTICAL_FLOW_ENABLE_TOL_M
+        ):
+            self.optical_flow_stage_enabled = True
+            if self.optical_flow_is_usable():
+                self.get_logger().warn(
+                    "[PHASE 2] Optical Flow altitude control ENABLED | "
+                    f"local_z={local_altitude:.2f} m | "
+                    f"distance={self.optical_flow_distance_m:.2f} m | "
+                    f"quality={self.optical_flow_quality}"
+                )
+            else:
+                self.get_logger().warn(
+                    "[PHASE 2] Optical Flow stage ENABLED but data is not usable. "
+                    "Using Local Z fallback."
+                )
+
+        # READY 이후 내부 OFFBOARD landing 상태는 별도 제어기로 처리한다.
+        if self.phase == "OFFBOARD_LANDING":
+            self.control_offboard_landing(now, dt, local_altitude, yaw)
+            return
+
+        altitude, altitude_target, altitude_source = self.altitude_control_state(
+            local_altitude
+        )
+        if altitude_source != self.last_altitude_source:
+            self.get_logger().warn(
+                "[PHASE 2] Altitude source changed: "
+                f"{self.last_altitude_source} -> {altitude_source}"
+            )
+            self.last_altitude_source = altitude_source
+
+        # READY 확정 후에는 Vision과 무관하게 snapshot 위치/방향 + 최종 고도를 유지하며
+        # GCS의 /mission/land_confirm=True를 기다린다.
+        if self.phase == "READY_WAIT_GCS":
+            self.control_ready_wait_gcs(
+                dt, local_altitude, yaw, altitude, altitude_target
+            )
             return
 
         target_ok = self.target_is_usable()
-
-        # ---------------------------------------------------------------------
-        # 표적 소실/데이터 stale 시 HOLD. 표적 없이 계속 하강하지 않는다.
-        # ---------------------------------------------------------------------
         if not target_ok:
             self.reset_horizontal_controllers()
             self.reset_yaw_controller()
             self.last_cmd_vx_east = 0.0
             self.last_cmd_vy_north = 0.0
             self.ready_since = None
-            self.publish_ready(False)
-
-            # 0 속도 명령으로 PX4 속도제어기에 현재 위치 유지를 요청한다.
+            self.ready_frame_count = 0
+            self.last_ready_vision_stamp = 0.0
+            if not self.ready_latched:
+                self.publish_ready(False)
             self.publish_zero_setpoint()
-
             self.log_control(
                 altitude=altitude,
                 phase=self.phase,
                 target_ok=False,
                 position_ok=False,
                 heading_ok=False,
-                ready_now=False,
+                ready_now=self.ready_latched,
                 desired_px=(0.0, 0.0),
                 v_cmd=(0.0, 0.0, 0.0),
                 yaw_rate=0.0,
@@ -1302,206 +1914,133 @@ class Phase2VisionAlignTo3m(Node):
             )
             return
 
-        # ---------------------------------------------------------------------
-        # 3 m 부근에서 APPROACH -> FINAL_ALIGN로 전환한다.
-        # ---------------------------------------------------------------------
+        # 3 m 최종 정렬 진입.
         if (
             self.phase == "APPROACH"
-            and abs(altitude - FINAL_ALIGN_ALT_M)
-            <= FINAL_ALIGN_ENTER_TOL_M
+            and self.optical_flow_stage_enabled
+            and abs(altitude - altitude_target) <= FINAL_ALIGN_ENTER_TOL_M
         ):
             self.phase = "FINAL_ALIGN"
             self.reset_horizontal_controllers()
             self.reset_yaw_controller()
             self.ready_since = None
-
+            self.ready_frame_count = 0
+            self.last_ready_vision_stamp = 0.0
             self.get_logger().warn(
-                "[PHASE 2] ================================================"
-            )
-            self.get_logger().warn(
-                "[PHASE 2] 3 m reached -> FINAL_ALIGN"
-            )
-            self.get_logger().warn(
-                "[PHASE 2] Camera-offset Landing Zone control ACTIVE"
-            )
-            self.get_logger().warn(
-                "[PHASE 2] LAND command will NOT be sent by this node"
-            )
-            self.get_logger().warn(
-                "[PHASE 2] ================================================"
+                "[PHASE 2] Final altitude reached -> FINAL_ALIGN | "
+                f"source={altitude_source} measured={altitude:.2f} m "
+                f"target={altitude_target:.2f} m"
             )
 
         final_align = self.phase in ("FINAL_ALIGN", "READY_WAIT_GCS")
 
-        # ---------------------------------------------------------------------
-        # 수평 PID 제어.
-        # ---------------------------------------------------------------------
         if final_align:
             forward_cmd, right_cmd = self.final_xy_command(dt)
         else:
             forward_cmd, right_cmd = self.approach_xy_command(dt)
 
         vx_east, vy_north = self.body_velocity_to_local_enu(
-            forward_cmd,
-            right_cmd,
-            yaw,
+            forward_cmd, right_cmd, yaw
         )
-
-        # PID 출력이 급격히 변해도 실제 PX4에 전달되는 속도 명령은
-        # 부드럽게 변하도록 제한한다.
         vx_east, vy_north = self.apply_xy_slew_rate(
-            vx_east,
-            vy_north,
-            dt,
-            final_align,
+            vx_east, vy_north, dt, final_align
         )
 
-        # ---------------------------------------------------------------------
-        # 수직 접근 및 3 m 고도 유지.
-        # ---------------------------------------------------------------------
-        vz_up = self.altitude_velocity_command(altitude)
+        vz_up = self.altitude_velocity_command(
+            measured_alt_m=altitude,
+            target_alt_m=altitude_target,
+            local_alt_m=local_altitude,
+        )
 
-        # -----------------------------------------------------------------
-        # 3 m 이전: FOV 오차에 따라 하강속도를 연속적으로 조절한다.
-        #
-        # 기존의 ON/OFF 방식(vz=0)은 제거한다.
-        # XY 보정과 하강을 동시에 유지해서 대각선 형태의 연속적인 접근을 만든다.
-        # -----------------------------------------------------------------
+        # 3 m 이전 FOV 오차에 따른 연속 하강속도 조절 기능 유지.
         descent_scale = 1.0
-
         if not final_align and vz_up < 0.0:
             fov_error = max(
                 abs(self.target.error_x_norm),
                 abs(self.target.error_y_norm),
             )
-
             if fov_error <= DESCENT_FULL_SPEED_FOV_NORM:
                 descent_scale = 1.0
-
             elif fov_error >= FOV_HARD_LIMIT_NORM:
                 descent_scale = DESCENT_MIN_SCALE
-
             else:
                 ratio = (
                     (fov_error - DESCENT_FULL_SPEED_FOV_NORM)
-                    /
-                    (FOV_HARD_LIMIT_NORM - DESCENT_FULL_SPEED_FOV_NORM)
+                    / (FOV_HARD_LIMIT_NORM - DESCENT_FULL_SPEED_FOV_NORM)
                 )
+                descent_scale = 1.0 - ratio * (1.0 - DESCENT_MIN_SCALE)
 
-                descent_scale = (
-                    1.0
-                    - ratio * (1.0 - DESCENT_MIN_SCALE)
-                )
-
-            descent_scale = clamp(
-                descent_scale,
-                DESCENT_MIN_SCALE,
-                1.0,
-            )
-
+            descent_scale = clamp(descent_scale, DESCENT_MIN_SCALE, 1.0)
             vz_up *= descent_scale
 
-        # ---------------------------------------------------------------------
-        # Yaw PI 제어.
-        # ---------------------------------------------------------------------
-        yaw_rate = self.yaw_rate_command(
-            final_align=final_align,
-            dt=dt,
-        )
+        yaw_rate = self.yaw_rate_command(final_align=final_align, dt=dt)
 
-        # ---------------------------------------------------------------------
-        # 3 m에서 READY 조건 판정.
-        # ---------------------------------------------------------------------
         position_ok = False
         heading_ok = False
-        ready_now = False
-
+        ready_now = self.ready_latched
         desired_px = self.desired_final_target_px()
 
-        if final_align:
-            position_ok = self.inside_landing_zone()
+        if final_align and not self.ready_latched:
+            (
+                conditions_ok,
+                position_ok,
+                heading_ok,
+                altitude_ok,
+                speed_ok,
+                xy_speed,
+                abs_vz,
+            ) = self.strict_ready_conditions(altitude, altitude_target)
 
-            if self.target.orientation_valid:
-                heading_ok = (
-                    abs(math.degrees(self.target.heading_error_rad))
-                    <= READY_HEADING_TOL_DEG
-                )
-            else:
-                heading_ok = not REQUIRE_VALID_HEADING_FOR_READY
-
-            altitude_ok = (
-                abs(altitude - FINAL_ALIGN_ALT_M)
-                <= FINAL_ALIGN_ENTER_TOL_M
+            # 같은 vision sample을 timer가 두 번 읽어도 frame count를 올리지 않는다.
+            is_new_vision_frame = (
+                self.target.receive_monotonic > self.last_ready_vision_stamp
             )
 
-            conditions_ok = (
-                position_ok
-                and heading_ok
-                and altitude_ok
-            )
+            if conditions_ok and is_new_vision_frame:
+                self.ready_frame_count += 1
+                self.last_ready_vision_stamp = self.target.receive_monotonic
+            elif not conditions_ok:
+                self.ready_frame_count = 0
+                self.last_ready_vision_stamp = self.target.receive_monotonic
 
-            if conditions_ok:
-                if self.ready_since is None:
-                    self.ready_since = now
+            if self.ready_frame_count >= READY_REQUIRED_FRAMES:
+                self.ready_latched = True
+                ready_now = True
 
-                stable_time = now - self.ready_since
-
-                if stable_time >= READY_STABLE_TIME_SEC:
-                    ready_now = True
-                    self.ready_latched = True
-
-                    if self.phase != "READY_WAIT_GCS":
-                        self.phase = "READY_WAIT_GCS"
-                        self.get_logger().warn(
-                            "[PHASE 2] ================================================"
-                        )
-                        self.get_logger().warn(
-                            "[PHASE 2] READY FOR LAND"
-                        )
-                        self.get_logger().warn(
-                            "[PHASE 2] Position / heading / 3 m condition satisfied"
-                        )
-                        self.get_logger().warn(
-                            "[PHASE 2] Holding alignment. Waiting for GCS mode change."
-                        )
-                        self.get_logger().warn(
-                            "[PHASE 2] THIS NODE DOES NOT COMMAND LAND."
-                        )
-                        self.get_logger().warn(
-                            "[PHASE 2] ================================================"
-                        )
-            else:
-                self.ready_since = None
-
-            # READY가 한번 성립한 후에는 작은 영상 노이즈로 즉시 False가
-            # 되지 않도록 더 넓은 '해제 기준'을 사용한다.
-            if self.ready_latched:
-                release_position_ok = self.inside_ready_release_zone()
-
-                if self.target.orientation_valid:
-                    release_heading_ok = (
-                        abs(math.degrees(self.target.heading_error_rad))
-                        <= READY_RELEASE_HEADING_TOL_DEG
+                if not self.capture_landing_reference():
+                    self.get_logger().error(
+                        "[PHASE 2] READY detected but failed to capture Local X/Y/Yaw"
                     )
+                    self.ready_latched = False
+                    self.ready_frame_count = 0
                 else:
-                    release_heading_ok = not REQUIRE_VALID_HEADING_FOR_READY
+                    self.publish_ready(True)
+                    self.get_logger().warn(
+                        "[PHASE 2] READY FOR LAND LATCHED | "
+                        f"frames={self.ready_frame_count} | "
+                        f"xy_speed={xy_speed:.3f} m/s | vz={abs_vz:.3f} m/s | "
+                        f"hold=({self.land_hold_x:.2f}, {self.land_hold_y:.2f})"
+                    )
 
-                ready_now = bool(
-                    release_position_ok
-                    and release_heading_ok
-                    and altitude_ok
-                )
+                    # READY=True는 GCS 팝업 표시용 준비 완료 신호다.
+                    # 여기서는 절대 하강을 시작하지 않고 snapshot 위치/방향/고도를 유지한다.
+                    # 실제 하강은 GCS가 LAND_CONFIRM_TOPIC에 Bool(True)를 보낸 뒤 시작한다.
+                    self.land_confirmed = False
+                    self.phase = "READY_WAIT_GCS"
+                    self.reset_horizontal_controllers()
+                    self.reset_yaw_controller()
+                    # READY가 된 동일 cycle에는 정지 setpoint를 넣고,
+                    # 다음 cycle부터 snapshot hover controller가 3 m를 유지한다.
+                    self.publish_zero_setpoint()
+                    return
+
+        elif self.ready_latched:
+            # READY_WAIT_GCS는 위에서 별도 snapshot-hover controller가 처리한다.
+            # 이 분기는 방어적으로 READY latch 상태만 유지한다.
+            ready_now = True
 
         self.publish_ready(ready_now)
-
-        # READY 이후에도 폐루프 정렬 제어를 계속 유지한다.
-        self.publish_velocity_setpoint(
-            vx_east,
-            vy_north,
-            vz_up,
-            yaw_rate,
-        )
-
+        self.publish_velocity_setpoint(vx_east, vy_north, vz_up, yaw_rate)
         self.log_control(
             altitude=altitude,
             phase=self.phase,
@@ -1535,8 +2074,14 @@ class Phase2VisionAlignTo3m(Node):
 
         self.last_log_monotonic = now
 
-        heading_deg = (
+        raw_heading_deg = (
             math.degrees(self.target.heading_error_rad)
+            if self.target.orientation_valid
+            else float("nan")
+        )
+
+        control_heading_error_deg = (
+            math.degrees(self.desired_heading_error_rad())
             if self.target.orientation_valid
             else float("nan")
         )
@@ -1544,7 +2089,8 @@ class Phase2VisionAlignTo3m(Node):
         self.get_logger().info(
             "[PHASE 2] "
             f"phase={phase} | "
-            f"alt={altitude:.2f}m | "
+            f"alt_ctrl={altitude:.2f}m | "
+            f"alt_source={self.last_altitude_source} | "
             f"target={target_ok} | "
             f"norm=({self.target.error_x_norm:+.3f},"
             f"{self.target.error_y_norm:+.3f}) | "
@@ -1552,7 +2098,9 @@ class Phase2VisionAlignTo3m(Node):
             f"{self.target.error_y_px:+.1f}) | "
             f"desired_px=({desired_px[0]:+.1f},"
             f"{desired_px[1]:+.1f}) | "
-            f"heading={heading_deg:+.1f}deg | "
+            f"heading_raw={raw_heading_deg:+.1f}deg | "
+            f"heading_target={DESIRED_HEADING_OFFSET_DEG:+.1f}deg | "
+            f"heading_ctrl_err={control_heading_error_deg:+.1f}deg | "
             f"pos_ok={position_ok} heading_ok={heading_ok} "
             f"ready={ready_now} | "
             f"xy_stage={self.final_xy_stage if phase != 'APPROACH' else 'APPROACH'} | "
@@ -1569,7 +2117,25 @@ class Phase2VisionAlignTo3m(Node):
 
     def run(self) -> bool:
         self.get_logger().info(
-            "[PHASE 2] Vision approach -> 3 m -> final align -> GCS handoff"
+            "[PHASE 2] REAL FLIGHT: vision approach -> snapshot READY -> 3m GCS wait -> OFFBOARD vertical landing"
+        )
+        self.get_logger().info(
+            "[PHASE 2] Control signs: "
+            f"X={X_CONTROL_SIGN:+.0f}, Y={Y_CONTROL_SIGN:+.0f}, "
+            f"YAW={YAW_CONTROL_SIGN:+.0f}"
+        )
+        self.get_logger().info(
+            "[PHASE 2] READY strict: "
+            f"px=±({READY_STRICT_X_PX:.0f},{READY_STRICT_Y_PX:.0f}) | "
+            f"alt=±{READY_STRICT_ALT_TOL_M:.2f}m | "
+            f"heading=±{READY_STRICT_HEADING_TOL_DEG:.1f}deg | "
+            f"Vxy<={READY_MAX_XY_SPEED_MPS:.2f} | "
+            f"|Vz|<={READY_MAX_ABS_VZ_MPS:.2f} | "
+            f"frames={READY_REQUIRED_FRAMES}"
+        )
+        self.get_logger().info(
+            "[PHASE 2] GCS landing confirmation topic: "
+            f"{LAND_CONFIRM_TOPIC}"
         )
 
         if not self.wait_initial_data():
@@ -1600,24 +2166,30 @@ class Phase2VisionAlignTo3m(Node):
 
         self.phase = "APPROACH"
         self.last_control_monotonic = time.monotonic()
-
         self.get_logger().info(
             "[PHASE 2] APPROACH active: FOV retention has priority over descent"
         )
 
-        # 실제 제어는 timer callback이 담당하고 run()은 spin을 유지한다.
-        # GCS에서 LAND 또는 다른 모드로 변경하면 본 노드의 OFFBOARD 제어권이 종료된다.
         while rclpy.ok():
             rclpy.spin_once(self, timeout_sec=0.05)
+
+            if self.mission_complete:
+                self.publish_ready(False)
+                self.get_logger().warn(
+                    "[PHASE 2] Mission complete: touchdown confirmed"
+                )
+                return True
 
             if self.state is None:
                 continue
 
             if self.state.mode != "OFFBOARD":
+                # 내부 OFFBOARD landing을 쓰는 도중 외부에서 AUTO.LAND 등을 걸면
+                # 즉시 setpoint 경쟁을 중단하고 제어권을 넘긴다.
                 if self.ready_latched:
                     self.get_logger().warn(
-                        f"[PHASE 2] GCS/FCU mode handoff detected: "
-                        f"{self.state.mode}. Phase 2 control released."
+                        f"[PHASE 2] External mode handoff after READY: "
+                        f"{self.state.mode}. OFFBOARD output released."
                     )
                     self.phase = "HANDOFF_COMPLETE"
                     self.publish_ready(False)
@@ -1633,7 +2205,6 @@ class Phase2VisionAlignTo3m(Node):
 
         return False
 
-
 def main():
     rclpy.init()
     node = Phase2VisionAlignTo3m()
@@ -1646,9 +2217,14 @@ def main():
         )
         ok = False
     finally:
-        # 여기서는 LAND 명령을 보내지 않는다.
-        # GCS에서 모드를 변경한 이후 단계는 PX4/GCS가 담당한다.
-        node.publish_ready(False)
+        # 내부 OFFBOARD landing이든 외부 mode handoff든 종료 시 READY는 False로 정리한다.
+        if rclpy.ok():
+            try:
+                node.publish_ready(False)
+                node.publish_zero_setpoint()
+            except Exception:
+                pass
+
         node.destroy_node()
 
         if rclpy.ok():
