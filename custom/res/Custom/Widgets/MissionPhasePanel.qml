@@ -40,6 +40,7 @@ Rectangle {
 
     // --- live orchestrator status (from RosBridge / command/status) ---
     readonly property bool   _linkOk:     RosBridge.phaseLinkOk
+    readonly property var    _activeVehicle: QGroundControl.multiVehicleManager.activeVehicle
     readonly property string _state:      RosBridge.phaseState        // idle|running|done|failed
     readonly property int    _activePhase: RosBridge.phase
     readonly property var    _done:       RosBridge.phaseDone
@@ -111,9 +112,12 @@ Rectangle {
     }
 
     function _syncFlightModeDisplay() {
+        const isOffboard = root._activeVehicle
+                && String(root._activeVehicle.flightMode).toUpperCase() === "OFFBOARD"
         const visionBasedLandActive = root._linkOk
                 && root._busy
                 && (root._activePhase === 2 || root._activePhase === 4)
+                && isOffboard
         globals.flightModeDisplayOverride = visionBasedLandActive
                 ? qsTr("Vision Based Land") : ""
     }
@@ -122,6 +126,13 @@ Rectangle {
         target: RosBridge
         function onPhaseStatusChanged() {
             root._syncPhasePrompt()
+            root._syncFlightModeDisplay()
+        }
+    }
+
+    Connections {
+        target: root._activeVehicle
+        function onFlightModeChanged() {
             root._syncFlightModeDisplay()
         }
     }
