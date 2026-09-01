@@ -22,7 +22,8 @@
       "description": "OFFBOARD 비행 · 영상 인식 · 3m 정렬 후 OFFBOARD 착륙",
       "script": "phase2.py",
       "confirmation": "land",
-      "ready_action": "land"
+      "ready_action": "land",
+      "manual_land": true
     },
     {
       "id": 3,
@@ -40,7 +41,8 @@
       "script": "phase4.py",
       "pending": true,
       "confirmation": "land",
-      "ready_action": "land"
+      "ready_action": "land",
+      "manual_land": true
     }
   ]
 }

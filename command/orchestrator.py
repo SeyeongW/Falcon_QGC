@@ -77,11 +77,13 @@ VTOL_FW = 4
 PX4_HOLD_MODE = "AUTO.LOITER"
 PX4_MISSION_MODE = "AUTO.MISSION"
 PX4_LAND_MODE = "AUTO.LAND"
+PX4_POSITION_MODE = "POSCTL"
 MAV_CMD_MISSION_START = 300
 MISSION_MODE_REQUEST_INTERVAL_SEC = 1.0
 MISSION_MODE_ENTRY_TIMEOUT_SEC = 15.0
 LAND_MODE_REQUEST_INTERVAL_SEC = 1.0
 LAND_MODE_ENTRY_TIMEOUT_SEC = 15.0
+POSITION_HOVER_SEC = 3.0
 MAV_CMD_NAV_WAYPOINT = 16
 
 CAMERA_SCRIPT = "robo_jinheui_pt.py"
@@ -166,6 +168,11 @@ class PhaseOrchestrator(Node):
         self._land_handoff_phase = None
         self._land_mode_request_started = 0.0
         self._land_mode_last_request = 0.0
+        self._manual_land_phase = None
+        self._manual_land_stage = None
+        self._manual_land_started = 0.0
+        self._manual_land_last_request = 0.0
+        self._manual_landing = False
         self._proc = None
         self._camera_proc = None
         self._camera_stopping = False
@@ -311,6 +318,10 @@ class PhaseOrchestrator(Node):
 
         phase = self._phases.get(self._running)
         if phase is None or getattr(phase, "ready_action", "none") != "land":
+            return
+        if getattr(phase, "manual_land", False):
+            # Manual-land phases expose the row-level OK button; do not open a
+            # second confirmation dialog from the phase script's ready signal.
             return
         if self._ready_for_land_seen or self._land_handoff_phase is not None:
             return
@@ -513,6 +524,73 @@ class PhaseOrchestrator(Node):
         self.set_mode_cli.call_async(request)
         self._land_mode_last_request = time.monotonic()
         return True
+
+    def _request_position_mode(self):
+        if not self.set_mode_cli.service_is_ready():
+            return False
+        request = SetMode.Request()
+        request.base_mode = 0
+        request.custom_mode = PX4_POSITION_MODE
+        self.set_mode_cli.call_async(request)
+        self._manual_land_last_request = time.monotonic()
+        return True
+
+    def _start_manual_land(self, phase_id):
+        """Stop OFFBOARD control, hold Position for 3 seconds, then land."""
+        if self._manual_land_phase is not None:
+            return
+        self._manual_land_phase = phase_id
+        self._manual_land_stage = "position"
+        self._manual_land_started = time.monotonic()
+        self._manual_land_last_request = 0.0
+        self._pending_confirmation = None
+        self._ready_for_land_seen = True
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            self._manual_landing = True
+            proc.terminate()
+            threading.Thread(target=self._kill_after, args=(proc, 2.0), daemon=True).start()
+        self._request_position_mode()
+        self._publish("running", self._progress(),
+                      "Land 승인됨 — Position 모드 3초 호버링 준비", phase=phase_id)
+
+    def _tick_manual_land(self):
+        phase_id = self._manual_land_phase
+        if phase_id is None:
+            return
+        now = time.monotonic()
+        if self._manual_land_stage == "position":
+            if self._mode != PX4_POSITION_MODE:
+                if now - self._manual_land_last_request >= 1.0:
+                    self._request_position_mode()
+                self._publish("running", self._progress(),
+                              "Position 모드 전환 확인 중", phase=phase_id)
+                return
+            elapsed = now - self._manual_land_started
+            if elapsed < POSITION_HOVER_SEC:
+                self._publish("running", self._progress(),
+                              f"Position 호버링 중 ({POSITION_HOVER_SEC - elapsed:.1f}초)",
+                              phase=phase_id)
+                return
+            self._manual_land_stage = "land"
+            self._land_mode_request_started = now
+            self._land_mode_last_request = 0.0
+            self._request_land_mode()
+            self._publish("running", self._progress(),
+                          "AUTO.LAND 전환 요청", phase=phase_id)
+            return
+        if self._mode == PX4_LAND_MODE:
+            phase = self._phases.get(phase_id)
+            title = phase.title if phase is not None else f"Phase {phase_id}"
+            self._manual_land_phase = None
+            self._manual_land_stage = None
+            self._running = None
+            self._done.add(phase_id)
+            self._publish("done", 1.0, f"{title} 완료 — AUTO.LAND 인가됨", phase=phase_id)
+            return
+        if now - self._land_mode_last_request >= 1.0:
+            self._request_land_mode()
+        self._publish("running", self._progress(), "AUTO.LAND 전환 확인 중", phase=phase_id)
 
     def _start_land_handoff(self, phase_id):
         now = time.monotonic()
@@ -981,6 +1059,9 @@ class PhaseOrchestrator(Node):
         self._clear_mission_monitor()
         self._waiting_for_landing_phase = None
         self._clear_land_handoff()
+        self._manual_land_phase = None
+        self._manual_land_stage = None
+        self._manual_landing = False
         self._ready_for_land_seen = False
         self._land_confirm_sent = False
         self._publish_land_confirm(False)
@@ -1024,6 +1105,10 @@ class PhaseOrchestrator(Node):
         self._proc = None
         self._stop_failsafe("Phase 종료 — Failsafe 프로세스 정리됨")
 
+        if self._manual_landing:
+            self._manual_landing = False
+            # Intentional stop before the Position-mode handoff; _tick drives landing.
+            return
         if self._aborting:
             # The nonzero exit was an intentional GCS take-over, not a failure.
             self._aborting = False
@@ -1052,7 +1137,7 @@ class PhaseOrchestrator(Node):
                 elif self._land_handoff_phase != n:
                     self._clear_land_handoff()
                     ready_action = getattr(phase, "ready_action", "none")
-                    if self._pending_confirmation != "land" and (
+                    if not getattr(phase, "manual_land", False) and self._pending_confirmation != "land" and (
                         ready_action != "land" or self._ready_for_land_seen
                     ):
                         self._publish_phase_confirmation(phase)
@@ -1184,6 +1269,18 @@ class PhaseOrchestrator(Node):
         response = msg.data.strip().lower()
         phase_id = self._running
         prompt = self._pending_confirmation
+
+        phase = self._phases.get(phase_id) if phase_id is not None else None
+        if (
+            response == "ok"
+            and phase_id in (2, 4)
+            and phase is not None
+            and getattr(phase, "manual_land", False)
+            and self._status["state"] in ("running", "awaiting_confirmation")
+            and self._manual_land_phase is None
+        ):
+            self._start_manual_land(phase_id)
+            return
 
         if (
             phase_id is None
@@ -1334,7 +1431,9 @@ class PhaseOrchestrator(Node):
         self._update_action_processes()
         # While a phase runs, refresh the live section description; otherwise
         # just republish the last status so late subscribers stay in sync.
-        if self._mission_monitor_phase is not None:
+        if self._manual_land_phase is not None:
+            self._tick_manual_land()
+        elif self._mission_monitor_phase is not None:
             self._tick_mission_monitor()
         elif self._land_handoff_phase is not None:
             self._tick_land_handoff()

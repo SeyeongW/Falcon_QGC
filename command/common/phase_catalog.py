@@ -37,6 +37,7 @@ class PhaseDefinition:
     available: bool
     confirm_after: str
     ready_action: str
+    manual_land: bool
     retry_script: str | None
     retry_script_path: Path | None
 
@@ -54,6 +55,7 @@ class PhaseDefinition:
             "available": self.available,
             "confirm_after": self.confirm_after,
             "ready_action": self.ready_action,
+            "manual_land": self.manual_land,
             "retry_script": self.retry_script or "",
             "retry_available": bool(
                 self.retry_script_path is not None
@@ -131,6 +133,7 @@ def _definition_from_entry(command_dir, entry):
     on_ok = entry.get("on_ok", "complete")
     confirm_after = entry.get("confirm_after", "process_exit")
     ready_action = entry.get("ready_action", "none")
+    manual_land = entry.get("manual_land", False)
     retry_script = entry.get("retry_script")
     if not isinstance(title, str) or not title.strip():
         raise CatalogError(f"Phase {phase_id} title이 올바르지 않습니다")
@@ -168,6 +171,8 @@ def _definition_from_entry(command_dir, entry):
         raise CatalogError(
             f"Phase {phase_id} ready_action이 올바르지 않습니다: {ready_action}"
         )
+    if not isinstance(manual_land, bool):
+        raise CatalogError(f"Phase {phase_id} manual_land는 bool이어야 합니다")
     if confirm_after == "landed" and confirmation == "none":
         raise CatalogError(
             f"Phase {phase_id} landed 확인에는 confirmation이 필요합니다"
@@ -197,6 +202,7 @@ def _definition_from_entry(command_dir, entry):
         available=start_action == "start_mission" or script_path.is_file(),
         confirm_after=confirm_after,
         ready_action=ready_action,
+        manual_land=manual_land,
         retry_script=retry_script,
         retry_script_path=retry_script_path,
     )
@@ -244,6 +250,7 @@ def load_phase_catalog(command_dir):
             available=True,
             confirm_after="process_exit",
             ready_action="none",
+            manual_land=False,
             retry_script=None,
             retry_script_path=None,
         )

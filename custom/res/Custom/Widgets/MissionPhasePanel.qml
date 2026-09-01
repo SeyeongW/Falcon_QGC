@@ -506,6 +506,17 @@ Rectangle {
                             color: phaseRow.done ? "#22C55E"
                                                  : phaseRow.running ? root._accent : root._mutedText
                         }
+
+                        // Phase 2/4 alignment is operator-confirmed. Keep the
+                        // button beside the active row so it is available at
+                        // any point while the OFFBOARD controller is running.
+                        QGCButton {
+                            text: qsTr("OK")
+                            visible: phaseRow.running && (phaseRow.phaseId === 2 || phaseRow.phaseId === 4)
+                            enabled: root._linkOk && (root._state === "running" || root._awaitingConfirmation)
+                            Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 4
+                            onClicked: RosBridge.respondPhase("ok")
+                        }
                     }
 
                     // live progress bar (indeterminate when progress < 0)
