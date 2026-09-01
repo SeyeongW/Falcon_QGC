@@ -579,14 +579,18 @@ class PhaseOrchestrator(Node):
             self._publish("running", self._progress(),
                           "AUTO.LAND 전환 요청", phase=phase_id)
             return
-        if self._mode == PX4_LAND_MODE:
+        if self._mode == PX4_LAND_MODE and self._landed_state == 1:
             phase = self._phases.get(phase_id)
             title = phase.title if phase is not None else f"Phase {phase_id}"
             self._manual_land_phase = None
             self._manual_land_stage = None
             self._running = None
             self._done.add(phase_id)
-            self._publish("done", 1.0, f"{title} 완료 — AUTO.LAND 인가됨", phase=phase_id)
+            self._publish("done", 1.0, f"{title} 완료 — 착륙 확인됨", phase=phase_id)
+            return
+        if self._manual_land_stage == "land" and self._mode == PX4_LAND_MODE:
+            self._publish("running", self._progress(),
+                          "AUTO.LAND 진행 중 — 착륙 완료 확인 대기", phase=phase_id)
             return
         if now - self._land_mode_last_request >= 1.0:
             self._request_land_mode()
