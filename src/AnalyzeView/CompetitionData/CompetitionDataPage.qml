@@ -151,7 +151,14 @@ AnalyzePage {
                     rowSpacing: ScreenTools.defaultFontPixelHeight * 0.25
 
                     QGCLabel { text: qsTr("GPS source"); font.bold: true }
-                    QGCLabel { text: controller.gpsSource }
+                    QGCComboBox {
+                        Layout.fillWidth: true
+                        model: controller.gpsSourceOptions
+                        textRole: "label"
+                        currentIndex: controller.selectedGpsSourceIndex
+                        enabled: !controller.parsing
+                        onActivated: (index) => controller.selectedGpsSourceIndex = index
+                    }
                     QGCLabel { text: qsTr("IMU source"); font.bold: true }
                     QGCLabel { text: controller.imuSource }
 

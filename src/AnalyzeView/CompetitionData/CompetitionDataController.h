@@ -24,6 +24,8 @@ class CompetitionDataController : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY resultChanged)
     Q_PROPERTY(QString warningMessage READ warningMessage NOTIFY resultChanged)
     Q_PROPERTY(QString gpsSource READ gpsSource NOTIFY resultChanged)
+    Q_PROPERTY(QVariantList gpsSourceOptions READ gpsSourceOptions NOTIFY resultChanged)
+    Q_PROPERTY(int selectedGpsSourceIndex READ selectedGpsSourceIndex WRITE setSelectedGpsSourceIndex NOTIFY resultChanged)
     Q_PROPERTY(QString imuSource READ imuSource NOTIFY resultChanged)
     Q_PROPERTY(QString attitudeSource READ attitudeSource NOTIFY resultChanged)
     Q_PROPERTY(double sourceRateHz READ sourceRateHz NOTIFY resultChanged)
@@ -47,6 +49,8 @@ public:
     QString errorMessage() const { return _errorMessage; }
     QString warningMessage() const { return _warningMessage; }
     QString gpsSource() const { return _gpsSource; }
+    QVariantList gpsSourceOptions() const { return _gpsSourceOptions; }
+    int selectedGpsSourceIndex() const { return _selectedGpsSourceIndex; }
     QString imuSource() const { return _imuSource; }
     QString attitudeSource() const { return _attitudeSource; }
     double sourceRateHz() const { return _sourceRateHz; }
@@ -65,6 +69,7 @@ public:
 
     void setSelectedArmIndex(int index);
     void setSelectedDisarmIndex(int index);
+    void setSelectedGpsSourceIndex(int index);
 
 signals:
     void parsingChanged();
@@ -120,6 +125,8 @@ private:
     void _updateSelectedRange();
     void _detectArmDisarmEvents();
     FieldSelection _selectGpsFields() const;
+    QVector<FieldSelection> _availableGpsFields() const;
+    double _fieldRateHz(const FieldSelection &fields) const;
     AxisSelection _selectAccelerationFields() const;
     QuaternionSelection _selectAttitudeFields() const;
     const QVector<QPointF> &_samples(const QString &fieldName) const;
@@ -153,6 +160,9 @@ private:
     QString _errorMessage;
     QString _warningMessage;
     QString _gpsSource;
+    QVariantList _gpsSourceOptions;
+    QVector<FieldSelection> _gpsCandidates;
+    int _selectedGpsSourceIndex = -1;
     QString _imuSource;
     QString _attitudeSource;
     QString _suggestedOutputPath;

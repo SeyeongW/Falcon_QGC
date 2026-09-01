@@ -113,6 +113,9 @@ void CompetitionDataController::clear()
 {
     _parser.clear();
     _gpsFields = {};
+    _gpsCandidates.clear();
+    _gpsSourceOptions.clear();
+    _selectedGpsSourceIndex = -1;
     _accelerationFields = {};
     _attitudeFields = {};
     _exportRange = {};
@@ -156,6 +159,29 @@ void CompetitionDataController::setSelectedDisarmIndex(int index)
     _updateSelectedRange();
 }
 
+void CompetitionDataController::setSelectedGpsSourceIndex(int index)
+{
+    if (index < 0 || index > _gpsCandidates.size() || index == _selectedGpsSourceIndex) {
+        return;
+    }
+    int candidateIndex = index - 1;
+    if (index == 0) {
+        double fastestRate = -1.0;
+        candidateIndex = 0;
+        for (int candidate = 0; candidate < _gpsCandidates.size(); ++candidate) {
+            const double rate = _fieldRateHz(_gpsCandidates[candidate]);
+            if (rate > fastestRate) {
+                fastestRate = rate;
+                candidateIndex = candidate;
+            }
+        }
+    }
+    _selectedGpsSourceIndex = index;
+    _gpsFields = _gpsCandidates[candidateIndex];
+    _gpsSource = _gpsFields.latitude.section(QLatin1Char('.'), 0, 0);
+    _updateSelectedRange();
+}
+
 void CompetitionDataController::_parseFinished(const QString &filePath, bool ok, const QString &errorMessage)
 {
     if (filePath != _sourcePath) {
@@ -170,11 +196,36 @@ void CompetitionDataController::_parseFinished(const QString &filePath, bool ok,
 
 void CompetitionDataController::_prepareResult()
 {
-    _gpsFields = _selectGpsFields();
-    if (_gpsFields.latitude.isEmpty()) {
+    _gpsCandidates = _availableGpsFields();
+    if (_gpsCandidates.isEmpty()) {
         _setError(tr("No supported raw GPS topic was found. Expected sensor_gps or vehicle_gps_position."));
         return;
     }
+    _gpsSourceOptions.clear();
+    QVariantMap automaticOption;
+    automaticOption[QStringLiteral("label")] = tr("자동 선택 (가장 높은 주기)");
+    automaticOption[QStringLiteral("rate")] = 0.0;
+    automaticOption[QStringLiteral("source")] = QStringLiteral("auto");
+    _gpsSourceOptions.append(automaticOption);
+    int fastestIndex = 0;
+    double fastestRate = -1.0;
+    for (int index = 0; index < _gpsCandidates.size(); ++index) {
+        const double rate = _fieldRateHz(_gpsCandidates[index]);
+        QVariantMap option;
+        option[QStringLiteral("label")] = QStringLiteral("%1 (%2 Hz)")
+                                                .arg(_gpsCandidates[index].latitude.section(QLatin1Char('.'), 0, 0))
+                                                .arg(rate, 0, 'f', 2);
+        option[QStringLiteral("rate")] = rate;
+        option[QStringLiteral("source")] = _gpsCandidates[index].latitude.section(QLatin1Char('.'), 0, 0);
+        _gpsSourceOptions.append(option);
+        if (rate > fastestRate) {
+            fastestRate = rate;
+            fastestIndex = index;
+        }
+    }
+    _selectedGpsSourceIndex = fastestIndex + 1;
+    _gpsFields = _gpsCandidates[fastestIndex];
+    _gpsSource = _gpsFields.latitude.section(QLatin1Char('.'), 0, 0);
     if (_samples(_gpsFields.utcTime).isEmpty()) {
         _setError(tr("The GPS topic has no GNSS UTC time, so GPST cannot be generated."));
         return;
@@ -440,6 +491,39 @@ CompetitionDataController::FieldSelection CompetitionDataController::_selectGpsF
         }
     }
     return {};
+}
+
+QVector<CompetitionDataController::FieldSelection> CompetitionDataController::_availableGpsFields() const
+{
+    const QVector<FieldSelection> candidates = {
+        {QStringLiteral("sensor_gps.latitude_deg"), QStringLiteral("sensor_gps.longitude_deg"), QStringLiteral("sensor_gps.altitude_msl_m"), QStringLiteral("sensor_gps.time_utc_usec"), QStringLiteral("sensor_gps.fix_type")},
+        {QStringLiteral("sensor_gps[0].latitude_deg"), QStringLiteral("sensor_gps[0].longitude_deg"), QStringLiteral("sensor_gps[0].altitude_msl_m"), QStringLiteral("sensor_gps[0].time_utc_usec"), QStringLiteral("sensor_gps[0].fix_type")},
+        {QStringLiteral("vehicle_gps_position.latitude_deg"), QStringLiteral("vehicle_gps_position.longitude_deg"), QStringLiteral("vehicle_gps_position.altitude_msl_m"), QStringLiteral("vehicle_gps_position.time_utc_usec"), QStringLiteral("vehicle_gps_position.fix_type")},
+        {QStringLiteral("vehicle_gps_position[0].latitude_deg"), QStringLiteral("vehicle_gps_position[0].longitude_deg"), QStringLiteral("vehicle_gps_position[0].altitude_msl_m"), QStringLiteral("vehicle_gps_position[0].time_utc_usec"), QStringLiteral("vehicle_gps_position[0].fix_type")},
+    };
+    QVector<FieldSelection> available;
+    for (const FieldSelection &candidate : candidates) {
+        if (!_samples(candidate.latitude).isEmpty() && !_samples(candidate.longitude).isEmpty()
+            && !_samples(candidate.altitude).isEmpty() && !_samples(candidate.utcTime).isEmpty()) {
+            available.append(candidate);
+        }
+    }
+    return available;
+}
+
+double CompetitionDataController::_fieldRateHz(const FieldSelection &fields) const
+{
+    const auto &samples = _samples(fields.latitude);
+    double intervalSum = 0.0;
+    int count = 0;
+    for (int index = 1; index < samples.size(); ++index) {
+        const double interval = samples[index].x() - samples[index - 1].x();
+        if (interval > 0.0) {
+            intervalSum += interval;
+            ++count;
+        }
+    }
+    return count > 0 ? 1.0 / (intervalSum / count) : 0.0;
 }
 
 CompetitionDataController::AxisSelection CompetitionDataController::_selectAccelerationFields() const
