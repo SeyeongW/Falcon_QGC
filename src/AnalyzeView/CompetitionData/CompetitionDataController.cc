@@ -337,11 +337,7 @@ void CompetitionDataController::_updateSelectedRange()
                       .arg(_sourceRateHz, 0, 'f', 2));
         return;
     }
-    if (sourceMaximumInterval > kMaximumGpsGapSeconds) {
-        _setError(tr("The selected range contains a %1 second GPS gap. Missing samples are not interpolated.")
-                      .arg(sourceMaximumInterval, 0, 'f', 3));
-        return;
-    }
+    const bool sourceHasGap = sourceMaximumInterval > kMaximumGpsGapSeconds;
 
     const QVector<int> gpsIndices = _selectedGpsIndices();
     if (gpsIndices.size() < 2) {
@@ -354,11 +350,7 @@ void CompetitionDataController::_updateSelectedRange()
         maximumInterval = std::max(maximumInterval,
                                    latitude[gpsIndices[index]].x() - latitude[gpsIndices[index - 1]].x());
     }
-    if (maximumInterval > kMaximumGpsGapSeconds) {
-        _setError(tr("The selected range cannot maintain 10 Hz without interpolation; maximum output gap is %1 seconds.")
-                      .arg(maximumInterval, 0, 'f', 3));
-        return;
-    }
+    const bool outputHasGap = maximumInterval > kMaximumGpsGapSeconds;
 
     const QVector<ExportRow> rows = _generateRows();
     if (rows.size() != gpsIndices.size()) {
@@ -388,6 +380,11 @@ void CompetitionDataController::_updateSelectedRange()
     }
 
     QStringList warnings;
+    if (sourceHasGap || outputHasGap) {
+        const double largestGap = std::max(sourceMaximumInterval, maximumInterval);
+        warnings.append(tr("The selected range contains a %1 second GPS gap. The export will continue without interpolation.")
+                             .arg(largestGap, 0, 'f', 3));
+    }
     if (_samples(kNavStateField).isEmpty()) {
         warnings.append(tr("vehicle_status.nav_state is missing; AUTO_MANUAL defaults to manual (0)."));
     }
