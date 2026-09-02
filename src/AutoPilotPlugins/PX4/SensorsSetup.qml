@@ -136,6 +136,14 @@ Item {
             setOrientationsDialogFactory.open({ title: qsTr("Compass Calibration Complete"), showRebootVehicleButton: true })
         }
 
+        // All non-compass calibration paths use the same completion/reboot guidance
+        // as compass calibration. The reboot action remains optional so the operator
+        // can acknowledge the result first and reboot when ready.
+        onCalibrationComplete: {
+            setOrientationsDialogShowBoardOrientation = false
+            setOrientationsDialogFactory.open({ title: qsTr("Calibration Complete"), showRebootVehicleButton: true })
+        }
+
         onWaitingForCancelChanged: {
             if (controller.waitingForCancel) {
                 waitForCancelDialogFactory.open()

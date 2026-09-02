@@ -70,6 +70,8 @@ signals:
     void resetStatusTextArea(void);
     void waitingForCancelChanged(void);
     void magCalComplete(void);
+    /// Emitted when a non-compass sensor calibration completes successfully.
+    void calibrationComplete(void);
     void calibrationActiveChanged(void);
 
 private slots:
