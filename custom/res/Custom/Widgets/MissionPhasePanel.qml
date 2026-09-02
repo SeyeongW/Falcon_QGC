@@ -532,6 +532,18 @@ Rectangle {
                         from: 0; to: 1
                         value: Math.max(0, RosBridge.phaseProgress)
                     }
+
+                    // Pause is an operator-requested phase stop. The existing
+                    // abort path terminates the script and switches PX4 to
+                    // HOLD, while the orchestrator reports the row as stopped.
+                    QGCButton {
+                        text: qsTr("Pause")
+                        visible: phaseRow.running
+                        enabled: root._linkOk
+                        Layout.alignment: Qt.AlignRight
+                        Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 8
+                        onClicked: RosBridge.abortMission()
+                    }
                 }
             }
         }
