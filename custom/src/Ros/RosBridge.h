@@ -108,6 +108,8 @@ public slots:
     void setActuatorTopic(const QString &topic);
     /// Ask the orchestrator to run mission phase `n` (publishes command/run_phase).
     Q_INVOKABLE void runPhase(int n);
+    /// Reset a completed or stopped phase to its initial idle state.
+    Q_INVOKABLE void resetPhase(int n);
     /// Reply to the active phase prompt ("ok", "no", or legacy "again").
     Q_INVOKABLE void respondPhase(const QString &response);
     /// Start or stop the onboard camera process.
@@ -159,6 +161,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _phaseCatalogSub;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _phaseStatusSub;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr _runPhasePub;
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr _resetPhasePub;
     rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr _abortPub;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr _phaseResponsePub;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr _actionPub;

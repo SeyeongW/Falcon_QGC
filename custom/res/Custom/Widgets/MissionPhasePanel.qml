@@ -544,6 +544,15 @@ Rectangle {
                         Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 8
                         onClicked: RosBridge.abortMission()
                     }
+
+                    QGCButton {
+                        text: qsTr("Reset")
+                        visible: phaseRow.done || phaseRow.stopped
+                        enabled: root._linkOk && !root._busy
+                        Layout.alignment: Qt.AlignRight
+                        Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 8
+                        onClicked: RosBridge.resetPhase(phaseRow.phaseId)
+                    }
                 }
             }
         }

@@ -117,6 +117,7 @@ class PhaseOrchestrator(Node):
             String, "command/catalog", catalog_qos
         )
         self.create_subscription(Int32, "command/run_phase", self._on_run_phase, 10)
+        self.create_subscription(Int32, "command/reset_phase", self._on_reset_phase, 10)
         self.create_subscription(
             String,
             "command/phase_response",
@@ -1052,6 +1053,31 @@ class PhaseOrchestrator(Node):
         self._camera_stopping = False
 
     # --- run-phase handling --------------------------------------------------
+    def _on_reset_phase(self, msg):
+        """Return a completed/stopped phase to the initial idle state."""
+        try:
+            phase_id = int(msg.data)
+        except (TypeError, ValueError):
+            self.get_logger().warning("잘못된 Phase reset 요청")
+            return
+
+        if phase_id not in self._phases:
+            self._publish("failed", -1, f"등록되지 않은 Phase: {phase_id}", phase=phase_id)
+            return
+        if self._running is not None:
+            self.get_logger().warning(
+                f"Phase {self._running} 실행 중에는 reset할 수 없습니다"
+            )
+            self._republish()
+            return
+
+        self._done.discard(phase_id)
+        if self._status.get("phase") == phase_id and self._status.get("state") in ("stopped", "failed", "done"):
+            self._publish("idle", -1, f"Phase {phase_id} reset 완료", phase=-1)
+        else:
+            self._status["done"] = sorted(self._done)
+            self._republish()
+
     def _on_run_phase(self, msg):
         try:
             n = int(msg.data)

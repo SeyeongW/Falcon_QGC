@@ -20,6 +20,7 @@ constexpr const char *kCompressedType = "sensor_msgs/msg/CompressedImage";
 constexpr qint64 kActuatorStaleMs = 1500;   ///< no RCOut for this long -> go static
 constexpr qint64 kPhaseStaleMs = 3000;      ///< no command/status for this long -> link down
 constexpr const char *kRunPhaseTopic = "command/run_phase";
+constexpr const char *kResetPhaseTopic = "command/reset_phase";
 constexpr const char *kCatalogTopic = "command/catalog";
 constexpr const char *kStatusTopic = "command/status";
 constexpr const char *kAbortTopic = "command/abort";
@@ -60,6 +61,7 @@ RosBridge::RosBridge(QObject *parent)
     // Mission phase orchestrator: publish run requests and subscribe to the
     // onboard MC's dynamic catalog plus live execution status.
     _runPhasePub = _node->create_publisher<std_msgs::msg::Int32>(kRunPhaseTopic, 10);
+    _resetPhasePub = _node->create_publisher<std_msgs::msg::Int32>(kResetPhaseTopic, 10);
     _abortPub = _node->create_publisher<std_msgs::msg::Empty>(kAbortTopic, 10);
     _phaseResponsePub = _node->create_publisher<std_msgs::msg::String>(kPhaseResponseTopic, 10);
     _actionPub = _node->create_publisher<std_msgs::msg::String>(kActionTopic, 10);
@@ -79,6 +81,7 @@ RosBridge::~RosBridge()
     _phaseCatalogSub.reset();
     _phaseStatusSub.reset();
     _runPhasePub.reset();
+    _resetPhasePub.reset();
     _abortPub.reset();
     _phaseResponsePub.reset();
     _actionPub.reset();
@@ -268,6 +271,18 @@ void RosBridge::runPhase(int n)
     msg.data = n;
     _runPhasePub->publish(msg);
     qCDebug(RosBridgeLog) << "runPhase" << n << "published";
+}
+
+void RosBridge::resetPhase(int n)
+{
+    if (!_resetPhasePub) {
+        qCWarning(RosBridgeLog) << "resetPhase" << n << "ignored: no publisher";
+        return;
+    }
+    std_msgs::msg::Int32 msg;
+    msg.data = n;
+    _resetPhasePub->publish(msg);
+    qCDebug(RosBridgeLog) << "resetPhase" << n << "published";
 }
 
 void RosBridge::respondPhase(const QString &response)
