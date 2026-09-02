@@ -456,6 +456,10 @@
         if (!route.length) {
             missionRouteBounds = null;
             initialViewApplied = false;
+            // Keep a vehicle entity even without a loaded mission. This is the
+            // normal manual-flight case and allows live position/attitude
+            // updates to remain visible on the Cesium map.
+            createVehicleModel();
             return;
         }
 
@@ -580,6 +584,13 @@
         lastVehiclePosition = position;
         setVehicleModelVisible(true);
         updateVehicleModelTransform(position, orientation);
+        // With no mission bounds there is no overview camera to fit. Establish
+        // one initial close view around the live aircraft; subsequent telemetry
+        // updates only move the model and do not reset the operator's camera.
+        if (!missionRouteBounds && !initialViewApplied) {
+            initialViewApplied = true;
+            followVehicle(vehicle, position, false);
+        }
         updateTrackingCamera(vehicle, position);
     }
 
@@ -597,10 +608,23 @@
         }
 
         const route = Array.isArray(snapshot.route) ? snapshot.route : [];
+        // Vehicle telemetry and waypoint progress arrive much more frequently
+        // than mission geometry. Rebuilding all entities for a state/index-only
+        // change clears the scene for a frame and appears as flicker, so use
+        // only geometry and labels for the rebuild signature.
         const signature = JSON.stringify({
-            route: route,
-            debug: Boolean(snapshot.showDebugSequenceNumbers),
-            currentLegIndex: Number(snapshot.currentLegIndex)
+            route: route.map(function (point) {
+                return {
+                    latitude: Number(point.latitude),
+                    longitude: Number(point.longitude),
+                    altitude: Number(point.altitude),
+                    label: point.label || "",
+                    isTakeoff: Boolean(point.isTakeoff),
+                    isLand: Boolean(point.isLand),
+                    isWaypoint: Boolean(point.isWaypoint)
+                };
+            }),
+            debug: Boolean(snapshot.showDebugSequenceNumbers)
         });
         if (signature !== lastRouteSignature) {
             lastRouteSignature = signature;
