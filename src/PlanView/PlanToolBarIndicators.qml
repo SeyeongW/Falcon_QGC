@@ -89,6 +89,13 @@ RowLayout {
         }
     }
 
+    function _saveAsClicked() {
+        saveAsDialog.title = qsTr("Save Plan As")
+        saveAsDialog.planFiles = true
+        saveAsDialog.nameFilters = _planMasterController.saveNameFilters
+        saveAsDialog.openForSave()
+    }
+
     function _storageClearButtonClicked() {
         QGroundControl.showMessageDialog(root, qsTr("Clear"),
                                      qsTr("Are you sure you want to remove all the items from the plan editor?"),
@@ -121,6 +128,14 @@ RowLayout {
         iconSource: "/qmlimages/Plan.svg"
         enabled: !_planMasterController.syncInProgress
         onClicked: { toolbarButtonClicked(); _openButtonClicked() }
+    }
+
+    QGCButton {
+        objectName: "planToolbar_saveAsButton"
+        text: qsTr("Save As")
+        iconSource: "/res/SaveToDisk.svg"
+        enabled: !_syncInProgress && _hasPlanItems
+        onClicked: { toolbarButtonClicked(); _saveAsClicked() }
     }
 
     QGCButton {
@@ -167,6 +182,18 @@ RowLayout {
         text:    qsTr("Click in map to add rally points")
         visible: root.showRallyPointsHelp
         Layout.alignment: Qt.AlignVCenter
+    }
+
+    QGCFileDialog {
+        id: saveAsDialog
+        folder: QGroundControl.settingsManager.appSettings.missionSavePath
+        property bool planFiles: true
+
+        onAcceptedForSave: (file) => {
+            if (_planMasterController.saveToFile(file)) {
+                close()
+            }
+        }
     }
 
     Component {
