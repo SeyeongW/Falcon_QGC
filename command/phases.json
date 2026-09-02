@@ -32,7 +32,8 @@
       "script": "phase3.py",
       "pending": true,
       "start_action": "start_mission",
-      "confirmation": "ok"
+      "confirmation": "ok",
+      "manual_gripper_close": true
     },
     {
       "id": 4,

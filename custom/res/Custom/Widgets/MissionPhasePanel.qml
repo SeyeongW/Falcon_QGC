@@ -512,7 +512,9 @@ Rectangle {
                         // any point while the OFFBOARD controller is running.
                         QGCButton {
                             text: qsTr("OK")
-                            visible: phaseRow.running && (phaseRow.phaseId === 2 || phaseRow.phaseId === 4)
+                            visible: phaseRow.running
+                                     && ((phaseRow.phaseId === 2 || phaseRow.phaseId === 4)
+                                         || phaseRow.modelData.manual_gripper_close === true)
                             enabled: root._linkOk && (root._state === "running" || root._awaitingConfirmation)
                             Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 4
                             onClicked: RosBridge.respondPhase("ok")

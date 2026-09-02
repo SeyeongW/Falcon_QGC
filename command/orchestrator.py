@@ -131,6 +131,11 @@ class PhaseOrchestrator(Node):
             "/mission/land_confirm",
             10,
         )
+        self.gripper_close_confirm_pub = self.create_publisher(
+            Bool,
+            "/mission/gripper_close_confirm",
+            10,
+        )
 
         # Live vehicle state used to describe the current mission section.
         self._last_wp = -1
@@ -164,6 +169,7 @@ class PhaseOrchestrator(Node):
         self._mission_mode_last_request = 0.0
         self._mission_start_sent = False
         self._land_confirm_sent = False
+        self._gripper_close_confirm_sent = False
         self._waiting_for_landing_phase = None
         self._land_handoff_phase = None
         self._land_mode_request_started = 0.0
@@ -613,6 +619,11 @@ class PhaseOrchestrator(Node):
         msg = Bool()
         msg.data = bool(confirmed)
         self.land_confirm_pub.publish(msg)
+
+    def _publish_gripper_close_confirm(self, confirmed=True):
+        msg = Bool()
+        msg.data = bool(confirmed)
+        self.gripper_close_confirm_pub.publish(msg)
 
     def _tick_land_handoff(self):
         phase_id = self._land_handoff_phase
@@ -1069,6 +1080,8 @@ class PhaseOrchestrator(Node):
         self._ready_for_land_seen = False
         self._land_confirm_sent = False
         self._publish_land_confirm(False)
+        self._gripper_close_confirm_sent = False
+        self._publish_gripper_close_confirm(False)
         if getattr(phase, "start_action", "run_script") == "start_mission":
             self._start_uploaded_mission(n, phase)
             return
@@ -1275,6 +1288,20 @@ class PhaseOrchestrator(Node):
         prompt = self._pending_confirmation
 
         phase = self._phases.get(phase_id) if phase_id is not None else None
+        if (
+            response == "ok"
+            and phase_id == 3
+            and phase is not None
+            and getattr(phase, "manual_gripper_close", False)
+            and self._status["state"] == "running"
+        ):
+            self._gripper_close_confirm_sent = True
+            self._publish_gripper_close_confirm(True)
+            self._publish(
+                "running", self._progress(),
+                "Gripper Close 펄스 조임 요청 전송됨", phase=phase_id,
+            )
+            return
         if (
             response == "ok"
             and phase_id in (2, 4)
