@@ -418,6 +418,7 @@ Rectangle {
                 readonly property int  phaseId:   Number(modelData.id)
                 readonly property bool done:      root._isDone(phaseId)
                 readonly property bool running:   root._isRunning(phaseId)
+                readonly property bool stopped:   root._state === "stopped" && root._activePhase === phaseId
                 readonly property bool available: modelData.available !== false
                 readonly property bool clickable: available && root._clickable(phaseId)
 
@@ -496,6 +497,7 @@ Rectangle {
                         // state chip
                         QGCLabel {
                             text: phaseRow.running ? (root._awaitingConfirmation ? qsTr("확인 대기") : qsTr("진행 중"))
+                                                   : phaseRow.stopped ? qsTr("중지")
                                                    : !phaseRow.available ? qsTr("코드 대기")
                                                    : phaseRow.done && phaseRow.clickable ? qsTr("재실행")
                                                                                        : phaseRow.done ? qsTr("완료")
@@ -504,6 +506,7 @@ Rectangle {
                             font.pointSize: ScreenTools.smallFontPointSize
                             font.bold: phaseRow.running
                             color: phaseRow.done ? "#22C55E"
+                                                 : phaseRow.stopped ? qgcPal.colorRed
                                                  : phaseRow.running ? root._accent : root._mutedText
                         }
 
@@ -553,6 +556,8 @@ Rectangle {
                         return qsTr("오케스트레이터 연결 시도 중… (최대 60초)")
                     if (root._state === "failed")
                         return qsTr("실패: %1").arg(RosBridge.phaseMsg)
+                    if (root._state === "stopped")
+                        return RosBridge.phaseMsg
                     if (root._awaitingConfirmation)
                         return RosBridge.phaseMsg
                     if (root._phases.length === 0)

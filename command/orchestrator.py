@@ -18,7 +18,7 @@ require restarting this node.
 
 Status JSON:
     {"phase": int,
-     "state": "idle|running|awaiting_confirmation|done|failed",
+     "state": "idle|running|awaiting_confirmation|done|stopped|failed",
      "msg": str, "progress": float(-1..1), "done": [completed phase ids],
      "prompt": ""|"ok"|"ok_again"|"land",
      "actions": {camera/gripper availability and live state}}
@@ -78,6 +78,17 @@ PX4_HOLD_MODE = "AUTO.LOITER"
 PX4_MISSION_MODE = "AUTO.MISSION"
 PX4_LAND_MODE = "AUTO.LAND"
 PX4_POSITION_MODE = "POSCTL"
+# PX4 modes in which the pilot has direct stick control. A transition into one
+# of these modes while an autonomous phase is active is treated as an RC
+# takeover and aborts the phase workflow.
+PX4_RC_CONTROL_MODES = {
+    "MANUAL",
+    "STABILIZED",
+    "ALTCTL",
+    "POSCTL",
+    "ACRO",
+    "RATTITUDE",
+}
 MAV_CMD_MISSION_START = 300
 MISSION_MODE_REQUEST_INTERVAL_SEC = 1.0
 MISSION_MODE_ENTRY_TIMEOUT_SEC = 15.0
@@ -314,8 +325,25 @@ class PhaseOrchestrator(Node):
             self._publish_phase_confirmation(phase)
 
     def _on_state(self, m):
+        previous_mode = self._mode
         self._mode = m.mode
         self._armed = m.armed
+
+        # RC takeover is visible as a flight-mode transition (for example,
+        # OFFBOARD/AUTO.MISSION -> POSCTL). Do not treat the deliberate
+        # Position-mode handoff used by Phase 2/4 as a takeover.
+        if (
+            self._running is not None
+            and self._manual_land_phase is None
+            and previous_mode
+            and previous_mode != self._mode
+            and self._mode.upper() in PX4_RC_CONTROL_MODES
+            and not self._aborting
+        ):
+            self.get_logger().warning(
+                f"RC take-over detected ({previous_mode} -> {self._mode}); stopping Phase {self._running}"
+            )
+            self._on_abort(Empty())
 
     def _on_ready_for_land(self, msg):
         """Show the Land confirmation as soon as a vision phase is aligned."""
@@ -1129,11 +1157,19 @@ class PhaseOrchestrator(Node):
         if self._aborting:
             # The nonzero exit was an intentional GCS take-over, not a failure.
             self._aborting = False
+            phase_id = self._running
             self._running = None
             self._pending_confirmation = None
             self._waiting_for_landing_phase = None
             self._clear_land_handoff()
-            self._publish("idle", -1, "제어권 회수됨 — HOLD(제자리 호버링)", phase=-1)
+            self._manual_land_phase = None
+            self._manual_land_stage = None
+            self._publish(
+                "stopped",
+                -1,
+                f"Phase {phase_id} 중지됨 — 제어권 회수, HOLD(제자리 호버링)",
+                phase=phase_id,
+            )
         elif rc == 0:
             confirm_after = getattr(phase, "confirm_after", "process_exit")
             confirmation = getattr(phase, "confirmation", "none")
@@ -1417,14 +1453,16 @@ class PhaseOrchestrator(Node):
             self._clear_mission_monitor()
             self._waiting_for_landing_phase = None
             self._clear_land_handoff()
+            self._manual_land_phase = None
+            self._manual_land_stage = None
             self.get_logger().info(
                 f"GCS take-over: cancelling Phase {phase_id} workflow"
             )
             self._publish(
-                "idle",
+                "stopped",
                 -1,
-                f"Phase {phase_id} 확인 취소 — HOLD(제자리 호버링)",
-                phase=-1,
+                f"Phase {phase_id} 중지됨 — 제어권 회수, HOLD(제자리 호버링)",
+                phase=phase_id,
             )
         else:
             self.get_logger().info("GCS take-over: no phase running, switching to HOLD")
