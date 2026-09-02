@@ -534,15 +534,8 @@ ApplicationWindow {
             }
         }
 
-        QGCLabel {
-            id:                 criticalVehicleMessageText
-            width:              criticalVehicleMessagePopup.width - ScreenTools.defaultFontPixelHeight
-            anchors.centerIn:   parent
-            wrapMode:           Text.WordWrap
-            color:              qgcPal.alertText
-            textFormat:         TextEdit.RichText
-        }
-
+        // Keep the dismiss area behind the message editor so the operator can
+        // select and copy vehicle errors from the popup.
         MouseArea {
             anchors.fill: parent
             onClicked: {
@@ -554,6 +547,21 @@ ApplicationWindow {
                     QGroundControl.multiVehicleManager.activeVehicle.resetErrorLevelMessages();
                 }
             }
+        }
+
+        TextArea {
+            id:                 criticalVehicleMessageText
+            width:              criticalVehicleMessagePopup.width - ScreenTools.defaultFontPixelHeight
+            anchors.centerIn:   parent
+            wrapMode:           TextEdit.Wrap
+            color:              qgcPal.alertText
+            textFormat:         TextEdit.RichText
+            readOnly:           true
+            selectByMouse:      true
+            persistentSelection: true
+            cursorVisible:      false
+            background:         null
+            padding:            0
         }
     }
 
