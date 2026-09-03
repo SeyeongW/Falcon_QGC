@@ -53,7 +53,6 @@ ToolIndicatorPage {
                 text: qsTr("Analyze")
                 imageResource: "/custom/img/falcon_menu_analyze.svg"
                 preserveImageColors: true
-                visible: QGroundControl.corePlugin.showAdvancedUI
                 onClicked: {
                     if (mainWindow.allowViewSwitch()) {
                         mainWindow.closeIndicatorDrawer()

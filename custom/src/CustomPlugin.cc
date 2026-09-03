@@ -1,4 +1,5 @@
 #include "CustomPlugin.h"
+#include "CustomCesiumConfig.h"
 #include "PerimeterScanComplexItem.h"
 #include "PerimeterScanPlanCreator.h"
 #include "QmlComponentInfo.h"
@@ -30,24 +31,21 @@ CustomFlyViewOptions::CustomFlyViewOptions(CustomOptions* options, QObject* pare
     qCDebug(CustomLog) << this;
 }
 
-CustomOptions::CustomOptions(CustomPlugin *plugin, QObject *parent)
+CustomOptions::CustomOptions(QObject *parent)
     : QGCOptions(parent)
-    , _plugin(plugin)
     , _flyViewOptions(new CustomFlyViewOptions(this, this))
 {
-    Q_CHECK_PTR(_plugin);
 }
 
 /*===========================================================================*/
 
 CustomPlugin::CustomPlugin(QObject *parent)
     : QGCCorePlugin(parent)
-    , _options(new CustomOptions(this, this))
+    , _options(new CustomOptions(this))
 {
     qCDebug(CustomLog) << this;
 
     _showAdvancedUI = false;
-    (void) connect(this, &QGCCorePlugin::showAdvancedUIChanged, this, &CustomPlugin::_advancedChanged);
 }
 
 QGCCorePlugin *CustomPlugin::instance()
@@ -62,12 +60,6 @@ void CustomPlugin::cleanup()
     }
 
     delete _selector;
-}
-
-void CustomPlugin::_advancedChanged(bool changed)
-{
-    // Firmware Upgrade page is only show in Advanced mode
-    emit _options->showFirmwareUpgradeChanged(changed);
 }
 
 void CustomPlugin::_addSettingsEntry(const QString &title, const char *qmlFile, const char *iconFile)
@@ -314,6 +306,22 @@ QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
     qmlRegisterType<RosVideoView>("Custom.Ros", 1, 0, "RosVideoView");
 #else
     _qmlEngine->rootContext()->setContextProperty("customRosEnabled", false);
+#endif
+
+#ifdef QGC_ENABLE_CESIUM
+    QString cesiumIonToken = qEnvironmentVariable("CESIUM_ION_TOKEN");
+    if (cesiumIonToken.isEmpty()) {
+        cesiumIonToken = QString::fromUtf8(kBakedCesiumIonToken);
+    }
+    _qmlEngine->rootContext()->setContextProperty("customCesiumEnabled", true);
+    _qmlEngine->rootContext()->setContextProperty(
+        "customCesiumIonToken", cesiumIonToken);
+    // Keep this diagnostic unconditional so it remains visible even when the
+    // application's category-level logging filters are enabled.
+    qWarning() << "Cesium ion token configured:" << !cesiumIonToken.isEmpty();
+#else
+    _qmlEngine->rootContext()->setContextProperty("customCesiumEnabled", false);
+    _qmlEngine->rootContext()->setContextProperty("customCesiumIonToken", QString());
 #endif
 
     return _qmlEngine;

@@ -24,24 +24,24 @@ PX4FirmwarePluginInstanceData::PX4FirmwarePluginInstanceData(QObject* parent)
 
 PX4FirmwarePlugin::PX4FirmwarePlugin()
 {
-    const QString manualFlightModeName = tr("Manual");
-    const QString acroFlightModeName = tr("Acro");
-    const QString stabilizedFlightModeName = tr("Stabilized");
-    const QString rattitudeFlightModeName = tr("Rattitude");
-    const QString altCtlFlightModeName = tr("Altitude");
-    const QString posCtlFlightModeName = tr("Position");
-    const QString offboardFlightModeName = tr("Offboard");
-    const QString readyFlightModeName = tr("Ready");
-    const QString takeoffFlightModeName = tr("Takeoff");
-    const QString holdFlightModeName = tr("Hold");
-    const QString missionFlightModeName = tr("Mission");
-    const QString rtlFlightModeName = tr("Return");
-    const QString landingFlightModeName = tr("Land");
-    const QString preclandFlightModeName = tr("Precision Land");
-    const QString rtgsFlightModeName = tr("Return to Groundstation");
-    const QString followMeFlightModeName = tr("Follow Me");
-    const QString simpleFlightModeName = tr("Simple");
-    const QString orbitFlightModeName = tr("Orbit");
+    const QString manualFlightModeName = QStringLiteral("Manual");
+    const QString acroFlightModeName = QStringLiteral("Acro");
+    const QString stabilizedFlightModeName = QStringLiteral("Stabilized");
+    const QString rattitudeFlightModeName = QStringLiteral("Rattitude");
+    const QString altCtlFlightModeName = QStringLiteral("Altitude");
+    const QString posCtlFlightModeName = QStringLiteral("Position");
+    const QString offboardFlightModeName = QStringLiteral("Offboard");
+    const QString readyFlightModeName = QStringLiteral("Ready");
+    const QString takeoffFlightModeName = QStringLiteral("Takeoff");
+    const QString holdFlightModeName = QStringLiteral("Hold");
+    const QString missionFlightModeName = QStringLiteral("Mission");
+    const QString rtlFlightModeName = QStringLiteral("Return");
+    const QString landingFlightModeName = QStringLiteral("Land");
+    const QString preclandFlightModeName = QStringLiteral("Precision Land");
+    const QString rtgsFlightModeName = QStringLiteral("Return to Groundstation");
+    const QString followMeFlightModeName = QStringLiteral("Follow Me");
+    const QString simpleFlightModeName = QStringLiteral("Simple");
+    const QString orbitFlightModeName = QStringLiteral("Orbit");
 
     _setModeEnumToModeStringMapping({
         { PX4CustomMode::MANUAL,        manualFlightModeName      },

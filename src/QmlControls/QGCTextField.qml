@@ -8,6 +8,13 @@ import QGroundControl.Controls
 TextField {
     id:                 control
     color:              qgcPal.textFieldText
+    // Qt Quick Controls derives a very dark placeholder color from the
+    // application palette. That is unreadable on FGC's dark text-field
+    // background, making empty search fields look as if they are missing.
+    placeholderTextColor: Qt.rgba(qgcPal.textFieldText.r,
+                                  qgcPal.textFieldText.g,
+                                  qgcPal.textFieldText.b,
+                                  0.72)
     selectionColor:     qgcPal.textFieldText
     selectedTextColor:  qgcPal.textField
     activeFocusOnPress: true

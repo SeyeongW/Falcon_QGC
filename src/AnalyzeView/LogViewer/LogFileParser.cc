@@ -240,6 +240,13 @@ QVariantList LogFileParser::fieldSamples(const QString &fieldName) const
     return output;
 }
 
+const QVector<QPointF> &LogFileParser::fieldSamplesVector(const QString &fieldName) const
+{
+    static const QVector<QPointF> emptySamples;
+    const auto it = _fieldSamples.constFind(fieldName);
+    return it == _fieldSamples.cend() ? emptySamples : it.value();
+}
+
 QVariantMap LogFileParser::fieldMinMax(const QString &fieldName) const
 {
     const auto it = _fieldSamples.constFind(fieldName);

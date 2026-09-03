@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "phases": [
+    {
+      "id": 0,
+      "title": "사전 점검",
+      "description": "센서 · GPS · 배터리 확인",
+      "script": "phase0.py",
+      "confirmation": "ok"
+    },
+    {
+      "id": 1,
+      "title": "이륙 · 정찰",
+      "description": "업로드된 1차 Mission 즉시 실행",
+      "script": "phase1.py",
+      "start_action": "start_mission",
+      "confirmation": "ok"
+    },
+    {
+      "id": 2,
+      "title": "Vision Based Land",
+      "description": "OFFBOARD 비행 · 영상 인식 · 3m 정렬 후 OFFBOARD 착륙",
+      "script": "phase2.py",
+      "confirmation": "land",
+      "ready_action": "land",
+      "manual_land": true
+    },
+    {
+      "id": 3,
+      "title": "구조자 이송 · 2차 미션",
+      "description": "업로드된 2차 Mission 즉시 실행",
+      "script": "phase3.py",
+      "pending": true,
+      "start_action": "start_mission",
+      "confirmation": "ok",
+      "manual_gripper_close": true
+    },
+    {
+      "id": 4,
+      "title": "Vision Based Land · 구조자 하기",
+      "description": "OFFBOARD 비행 · 영상 인식 · 3m 정렬 후 OFFBOARD 착륙",
+      "script": "phase4.py",
+      "pending": true,
+      "confirmation": "land",
+      "ready_action": "land",
+      "manual_land": true
+    }
+  ]
+}

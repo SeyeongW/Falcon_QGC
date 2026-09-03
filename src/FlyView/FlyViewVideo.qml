@@ -44,7 +44,7 @@ Item {
         id:             videoStreaming
         anchors.fill:   parent
         useSmallFont:   _root.pipState.state !== _root.pipState.fullState
-        visible:        QGroundControl.videoManager.isStreamSource || QGroundControl.videoManager.isUvc
+        visible:        true
     }
 
     QGCLabel {

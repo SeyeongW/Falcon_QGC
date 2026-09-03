@@ -240,6 +240,7 @@ find_package(Qt6
         QuickTest
         SerialPort
         Test
+        ${QGC_CUSTOM_QT_OPTIONAL_COMPONENTS}
 )
 
 if(LINUX AND NOT ANDROID)

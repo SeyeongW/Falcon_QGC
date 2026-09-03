@@ -77,12 +77,8 @@ class Phase0Precheck(Node):
     def battery_callback(self, msg):
         self.battery = msg
 
-    def wait_for_data(self, timeout_sec=60.0):
-        # PX4's EKF needs GPS lock + convergence before local/global position are
-        # published (typically 30-60 s after SITL boot), so wait generously and
-        # log progress rather than failing after a few seconds.
+    def wait_for_data(self, timeout_sec=10.0):
         start_time = time.time()
-        last_progress = 0.0
 
         while rclpy.ok():
             rclpy.spin_once(self, timeout_sec=0.1)
@@ -95,33 +91,12 @@ class Phase0Precheck(Node):
             if state_ok and local_ok and global_ok and battery_ok:
                 return True
 
-            elapsed = time.time() - start_time
-
-            # Progress log every 5 s so it's clear what is still missing.
-            if elapsed - last_progress >= 5.0:
-                last_progress = elapsed
-                missing = [
-                    name for name, ok in (
-                        ("state", state_ok), ("local_pose", local_ok),
-                        ("global_fix", global_ok), ("battery", battery_ok),
-                    ) if not ok
-                ]
-                self.get_logger().info(
-                    f"waiting for MAVROS/PX4 data ({elapsed:.0f}/{timeout_sec:.0f}s) — "
-                    f"still missing: {', '.join(missing)}")
-
-            if elapsed > timeout_sec:
+            if time.time() - start_time > timeout_sec:
                 self.get_logger().error("Timeout while waiting for MAVROS/PX4 data")
                 self.get_logger().error(f"state received: {state_ok}")
                 self.get_logger().error(f"local pose received: {local_ok}")
                 self.get_logger().error(f"global fix received: {global_ok}")
                 self.get_logger().error(f"battery received: {battery_ok}")
-                # Diagnostic hint: connected but no position => EKF/GPS not ready.
-                if state_ok and self.state.connected and (not local_ok or not global_ok):
-                    self.get_logger().error(
-                        "FCU is connected but has no position estimate. "
-                        "PX4 has no valid EKF/GPS fix yet — check PX4 system_status "
-                        "(should be >=3 STANDBY), GPS lock, and the PX4<->Gazebo sim link.")
                 return False
 
         return False
@@ -202,7 +177,7 @@ class Phase0Precheck(Node):
     def run(self):
         self.get_logger().info("[PHASE 0] Precheck start")
 
-        if not self.wait_for_data(timeout_sec=60.0):
+        if not self.wait_for_data(timeout_sec=10.0):
             return False
 
         checks = [
