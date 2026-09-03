@@ -26,12 +26,9 @@ Item {
 
     property string routeText:              "-- >>> --"
     property string routeDetailText:        ""
-    property real   horizontalError:        Number.NaN
-    property real   verticalError:          Number.NaN
     property real   altitudeDrop:           Number.NaN
     property real   maximumAccelerationG:   Number.NaN
     property string missionTimeText:        "--"
-    property int    estimatedScore:         0
 
     readonly property real routeAreaRatio: 0.70
     readonly property real routeAreaWidth: routeArea.width
@@ -73,7 +70,6 @@ Item {
     property var   _takeoffVisual: null
     property var   _landingVisual: null
     property var   _homePadVisual: null
-    property var   _targetMissionItem: null
     property int   _targetSequenceNumber: -1
     property real  _missionStartTimestampMs: Number.NaN
     property real  _missionStopTimestampMs: Number.NaN
@@ -316,20 +312,6 @@ Item {
                 && _isValidCoordinate(item.coordinate)
     }
 
-    function _occurrenceAltitudeAMSL(item) {
-        if (!item) {
-            return Number.NaN
-        }
-
-        const entryAltitude = Number(item.amslEntryAlt)
-        if (isFinite(entryAltitude)) {
-            return entryAltitude
-        }
-
-        const exitAltitude = Number(item.amslExitAlt)
-        return isFinite(exitAltitude) ? exitAltitude : Number.NaN
-    }
-
     function _copyOccurrence(occurrence) {
         return {
             occurrenceIndex: occurrence.occurrenceIndex,
@@ -344,13 +326,7 @@ Item {
             isLand: occurrence.isLand,
             visitNumber: occurrence.visitNumber,
             totalVisitCount: occurrence.totalVisitCount,
-            state: occurrence.state,
-            score: occurrence.score,
-            minimumHorizontalError: occurrence.minimumHorizontalError,
-            minimumVerticalError: occurrence.minimumVerticalError,
-            passedTimestamp: occurrence.passedTimestamp,
-            altitudeAMSL: occurrence.altitudeAMSL,
-            missionItem: occurrence.missionItem
+            state: occurrence.state
         }
     }
 
@@ -463,13 +439,7 @@ Item {
                             ? group.waypointOccurrenceIndices.length
                             : 0,
                     totalVisitCount: 0,
-                    state: waypointPending,
-                    score: -1,
-                    minimumHorizontalError: Number.NaN,
-                    minimumVerticalError: Number.NaN,
-                    passedTimestamp: Number.NaN,
-                    altitudeAMSL: _occurrenceAltitudeAMSL(item),
-                    missionItem: item
+                    state: waypointPending
                 })
             }
         }
@@ -551,42 +521,11 @@ Item {
         for (let index = 0; index < missionOccurrences.length; index++) {
             const occurrence = _copyOccurrence(missionOccurrences[index])
             occurrence.state = waypointPending
-            occurrence.score = -1
-            occurrence.minimumHorizontalError = Number.NaN
-            occurrence.minimumVerticalError = Number.NaN
-            occurrence.passedTimestamp = Number.NaN
             occurrences.push(occurrence)
         }
         missionOccurrences = occurrences
         _lastMissionSequence = -1
         _publishMissionProgress()
-    }
-
-    function _scoreForErrors(horizontalMeters, verticalMeters) {
-        const horizontal = Number(horizontalMeters)
-        const vertical = Number(verticalMeters)
-        if (!isFinite(horizontal) || !isFinite(vertical)) {
-            return 0
-        }
-        if (horizontal < 2 && vertical < 4) {
-            return 20
-        }
-        if (horizontal < 4 && vertical < 7) {
-            return 12
-        }
-        if (horizontal < 6 && vertical < 10) {
-            return 6
-        }
-        return 0
-    }
-
-    function _finalizeOccurrenceScore(occurrence, wasActive) {
-        if (!occurrence.isWaypoint || occurrence.score >= 0) {
-            return
-        }
-        occurrence.score = wasActive
-                ? _scoreForErrors(horizontalError, verticalError)
-                : 0
     }
 
     function _applyMissionSequence(sequenceNumber) {
@@ -601,7 +540,6 @@ Item {
             _resetOccurrenceProgress()
         }
 
-        const now = Date.now()
         let activeTargetIndex = -1
         for (let index = 0; index < missionOccurrences.length; index++) {
             const occurrence = missionOccurrences[index]
@@ -615,16 +553,8 @@ Item {
         const occurrences = []
         for (let index = 0; index < missionOccurrences.length; index++) {
             const occurrence = _copyOccurrence(missionOccurrences[index])
-            const wasPassed = occurrence.state === waypointPassed
-            const wasActive = occurrence.state === waypointActive
             if (activeTargetIndex < 0 || index < activeTargetIndex) {
                 occurrence.state = waypointPassed
-                if (!wasPassed && !isFinite(occurrence.passedTimestamp)) {
-                    occurrence.passedTimestamp = now
-                }
-                if (!wasPassed) {
-                    _finalizeOccurrenceScore(occurrence, wasActive)
-                }
             } else if (index === activeTargetIndex) {
                 occurrence.state = waypointActive
             } else if (occurrence.state !== waypointFailed) {
@@ -644,15 +574,9 @@ Item {
             return
         }
 
-        updateTargetMetrics()
         const occurrences = missionOccurrences.slice()
         const occurrence = _copyOccurrence(occurrences[activeOccurrenceIndex])
-        const wasActive = occurrence.state === waypointActive
-        _finalizeOccurrenceScore(occurrence, wasActive)
         occurrence.state = waypointPassed
-        if (!isFinite(occurrence.passedTimestamp)) {
-            occurrence.passedTimestamp = Date.now()
-        }
         occurrences[activeOccurrenceIndex] = occurrence
         missionOccurrences = occurrences
         _publishMissionProgress()
@@ -670,13 +594,11 @@ Item {
 
         const groups = []
         const states = []
-        let totalScore = 0
         for (let groupIndex = 0;
              groupIndex < physicalWaypointGroups.length;
              groupIndex++) {
             const sourceGroup = physicalWaypointGroups[groupIndex]
             let completedVisitCount = 0
-            let groupScore = 0
             let groupState = waypointPending
             for (let visitIndex = 0;
                  visitIndex < sourceGroup.occurrenceIndices.length;
@@ -686,11 +608,6 @@ Item {
                 if (occurrence.state === waypointPassed) {
                     if (occurrence.isWaypoint) {
                         completedVisitCount++
-                        const occurrenceScore = Number(occurrence.score)
-                        if (isFinite(occurrenceScore) && occurrenceScore >= 0) {
-                            groupScore += occurrenceScore
-                            totalScore += occurrenceScore
-                        }
                     }
                     groupState = waypointPassed
                 } else if (occurrence.state === waypointActive) {
@@ -735,14 +652,12 @@ Item {
                 hasLandOccurrence: sourceGroup.hasLandOccurrence,
                 waypointNumber: sourceGroup.waypointNumber,
                 state: groupState,
-                score: completedVisitCount > 0 ? groupScore : -1,
                 label: label
             })
             states.push(groupState)
         }
         physicalWaypointGroups = groups
         waypointStates = states
-        estimatedScore = totalScore
         activeWaypointIndex = activeIndex >= 0
                 ? missionOccurrences[activeIndex].physicalWaypointIndex
                 : -1
@@ -818,33 +733,6 @@ Item {
         }
     }
 
-    function _recordActiveOccurrenceErrors() {
-        if (activeOccurrenceIndex < 0
-                || activeOccurrenceIndex >= missionOccurrences.length) {
-            return
-        }
-
-        const occurrences = missionOccurrences.slice()
-        const occurrence = _copyOccurrence(occurrences[activeOccurrenceIndex])
-        let changed = false
-        if (isFinite(horizontalError)
-                && (!isFinite(occurrence.minimumHorizontalError)
-                    || horizontalError < occurrence.minimumHorizontalError)) {
-            occurrence.minimumHorizontalError = horizontalError
-            changed = true
-        }
-        if (isFinite(verticalError)
-                && (!isFinite(occurrence.minimumVerticalError)
-                    || verticalError < occurrence.minimumVerticalError)) {
-            occurrence.minimumVerticalError = verticalError
-            changed = true
-        }
-        if (changed) {
-            occurrences[activeOccurrenceIndex] = occurrence
-            missionOccurrences = occurrences
-        }
-    }
-
     function _currentMissionSequence() {
         if (!activeVehicle
                 || !activeVehicle.armed
@@ -863,13 +751,10 @@ Item {
     function refreshTargetItem() {
         const sequenceNumber = _currentMissionSequence()
         _targetSequenceNumber = sequenceNumber
-        updateTargetMetrics()
-        _targetMissionItem = null
         routeText = "-- >>> --"
         routeDetailText = ""
 
         if (sequenceNumber < 0) {
-            updateTargetMetrics()
             _updateMissionTimerState()
             return
         }
@@ -877,40 +762,10 @@ Item {
         _applyMissionSequence(sequenceNumber)
         if (activeOccurrenceIndex >= 0
                 && activeOccurrenceIndex < missionOccurrences.length) {
-            const occurrence = missionOccurrences[activeOccurrenceIndex]
-            _targetMissionItem = occurrence.missionItem
             _updateRouteText()
         }
 
-        updateTargetMetrics()
         _updateMissionTimerState()
-    }
-
-    function updateTargetMetrics() {
-        horizontalError = Number.NaN
-        verticalError = Number.NaN
-
-        if (!activeVehicle
-                || !_targetMissionItem
-                || !_isValidCoordinate(activeVehicle.coordinate)
-                || !_isValidCoordinate(_targetMissionItem.coordinate)) {
-            return
-        }
-
-        const distanceMeters = activeVehicle.coordinate.distanceTo(
-                    _targetMissionItem.coordinate)
-        if (isFinite(distanceMeters)) {
-            horizontalError = Math.max(0, distanceMeters)
-        }
-
-        const vehicleAltitudeAMSL = activeVehicle.altitudeAMSL
-                ? Number(activeVehicle.altitudeAMSL.rawValue)
-                : Number.NaN
-        const targetAltitudeAMSL = Number(_targetMissionItem.amslEntryAlt)
-        if (isFinite(vehicleAltitudeAMSL) && isFinite(targetAltitudeAMSL)) {
-            verticalError = Math.abs(targetAltitudeAMSL - vehicleAltitudeAMSL)
-        }
-        _recordActiveOccurrenceErrors()
     }
 
     function _formatMissionElapsedTime(elapsedMilliseconds) {
@@ -1180,16 +1035,6 @@ Item {
     }
 
     Timer {
-        interval: 200
-        repeat: true
-        running: root.activeVehicle !== null
-                 && root.activeVehicle !== undefined
-                 && root._targetMissionItem !== null
-
-        onTriggered: root.updateTargetMetrics()
-    }
-
-    Timer {
         interval: 1000
         repeat: true
         running: root._missionTimerRunning
@@ -1307,9 +1152,8 @@ Item {
                 anchors.left:      parent.left
                 anchors.right:     parent.right
                 anchors.top:       waypointStatusTitle.bottom
-                anchors.bottom:    totalScoreRow.top
+                anchors.bottom:    parent.bottom
                 anchors.topMargin: Math.max(4, infoContent.sectionSpacing * 0.5)
-                anchors.bottomMargin: Math.max(4, infoContent.sectionSpacing * 0.35)
                 spacing:           Math.max(2, height * 0.012)
                 model: root.physicalWaypointGroups
                        ? root.physicalWaypointGroups.filter(function(group) {
@@ -1332,28 +1176,10 @@ Item {
                     height: Math.max(22, waypointStatusLabel.implicitHeight + 6)
 
                     QGCLabel {
-                        id: waypointStatusSymbol
-
-                        anchors.left:           parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        width:                  Math.max(12, infoArea.infoValueFontSize * 0.75)
-                        text:                   waypointStatusRow.state === root.waypointPassed
-                                                ? "✓"
-                                                : waypointStatusRow.state === root.waypointActive
-                                                  ? "●"
-                                                  : "○"
-                        color:                  waypointStatusRow.stateColor
-                        horizontalAlignment:    Text.AlignHCenter
-                        font.bold:              true
-                        font.pixelSize:         infoArea.infoValueFontSize
-                    }
-
-                    QGCLabel {
                         id: waypointStatusLabel
 
-                        anchors.left:           waypointStatusSymbol.right
-                        anchors.leftMargin:      Math.max(3, infoArea.infoValueFontSize * 0.2)
-                        anchors.right:          waypointScoreLabel.left
+                        anchors.left:           parent.left
+                        anchors.right:          waypointPassedCheck.left
                         anchors.rightMargin:     Math.max(3, infoArea.infoValueFontSize * 0.2)
                         anchors.verticalCenter: parent.verticalCenter
                         text:                   qsTr("WP%1").arg(
@@ -1366,60 +1192,18 @@ Item {
                     }
 
                     QGCLabel {
-                        id: waypointScoreLabel
+                        id: waypointPassedCheck
 
                         anchors.right:          parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        width:                  parent.width * 0.42
-                        text:                   waypointStatusRow.modelData.completedVisitCount > 0
-                                                && Number(waypointStatusRow.modelData.score) >= 0
-                                                ? qsTr("%1 pts").arg(
-                                                      waypointStatusRow.modelData.score)
-                                                : "--"
-                        color:                  waypointStatusRow.stateColor
-                        elide:                  Text.ElideRight
+                        width:                  Math.max(12, infoArea.infoValueFontSize)
+                        visible:                waypointStatusRow.state === root.waypointPassed
+                        text:                   "✓"
+                        color:                  root._passedColor
                         horizontalAlignment:    Text.AlignRight
-                        font.bold:              waypointStatusRow.state === root.waypointPassed
+                        font.bold:              true
                         font.pixelSize:         infoArea.infoValueFontSize
                     }
-                }
-            }
-
-            Item {
-                id: totalScoreRow
-
-                anchors.left:   parent.left
-                anchors.right:  parent.right
-                anchors.bottom: parent.bottom
-                height:         Math.max(28, infoArea.infoValueFontSize * 1.7)
-
-                Rectangle {
-                    anchors.left:  parent.left
-                    anchors.right: parent.right
-                    anchors.top:   parent.top
-                    height:        1
-                    color:         Qt.rgba(0.32, 0.42, 0.48, 0.35)
-                }
-
-                QGCLabel {
-                    anchors.left:           parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    text:                   qsTr("TOTAL SCORE")
-                    color:                  root._standbyColor
-                    elide:                  Text.ElideRight
-                    font.bold:              true
-                    font.pixelSize:         infoArea.infoLabelFontSize
-                }
-
-                QGCLabel {
-                    anchors.right:          parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    text:                   qsTr("%1 pts").arg(root.estimatedScore)
-                    color:                  root._standbyBorderColor
-                    elide:                  Text.ElideRight
-                    horizontalAlignment:    Text.AlignRight
-                    font.bold:              true
-                    font.pixelSize:         infoArea.infoValueFontSize
                 }
             }
         }
@@ -1701,7 +1485,6 @@ Item {
 
                 function onAmslEntryAltChanged() {
                     root.rebuildRoute()
-                    root.updateTargetMetrics()
                 }
 
                 function onSpecifiesCoordinateChanged() {
@@ -1842,19 +1625,6 @@ Item {
 
         function onRawValueChanged() {
             root.refreshTargetItem()
-        }
-    }
-
-    Connections {
-        target: root._targetMissionItem
-        ignoreUnknownSignals: true
-
-        function onCoordinateChanged() {
-            root.updateTargetMetrics()
-        }
-
-        function onAmslEntryAltChanged() {
-            root.updateTargetMetrics()
         }
     }
 

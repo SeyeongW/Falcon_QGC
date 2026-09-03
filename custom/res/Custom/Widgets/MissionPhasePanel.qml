@@ -366,6 +366,13 @@ Rectangle {
             }
 
             QGCButton {
+                text: qsTr("Pulse")
+                visible: root._gripperCloseRunning
+                enabled: root._linkOk
+                onClicked: RosBridge.respondPhase("ok")
+            }
+
+            QGCButton {
                 text: RosBridge.failsafeRunning ? qsTr("Failsafe 실행 중") : qsTr("Failsafe")
                 enabled: root._linkOk
                          && RosBridge.failsafeAvailable
@@ -514,13 +521,12 @@ Rectangle {
                         // button beside the active row so it is available at
                         // any point while the OFFBOARD controller is running.
                         QGCButton {
-                            text: qsTr("OK")
+                            text: qsTr("Position")
                             visible: phaseRow.running
-                                     && ((phaseRow.phaseId === 2 || phaseRow.phaseId === 4)
-                                         || phaseRow.modelData.manual_gripper_close === true)
+                                     && (phaseRow.phaseId === 2 || phaseRow.phaseId === 4)
                             enabled: root._linkOk && (root._state === "running" || root._awaitingConfirmation)
-                            Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 4
-                            onClicked: RosBridge.respondPhase("ok")
+                            Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 8
+                            onClicked: RosBridge.respondPhase("position")
                         }
                     }
 

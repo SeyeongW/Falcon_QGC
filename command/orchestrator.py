@@ -54,7 +54,7 @@ from rclpy.qos import (
 
 from std_msgs.msg import Bool, Empty, Int32, String
 from mavros_msgs.msg import ExtendedState, State, WaypointList, WaypointReached
-from mavros_msgs.srv import CommandLong, SetMode
+from mavros_msgs.srv import CommandLong, SetMode, WaypointPull
 
 from common.phase_catalog import CatalogError, catalog_payload, load_phase_catalog
 
@@ -138,6 +138,10 @@ class PhaseOrchestrator(Node):
             CommandLong,
             "/mavros/cmd/command",
         )
+        self.mission_pull_cli = self.create_client(
+            WaypointPull,
+            "/mavros/mission/pull",
+        )
         self.land_confirm_pub = self.create_publisher(
             Bool,
             "/mission/land_confirm",
@@ -180,6 +184,8 @@ class PhaseOrchestrator(Node):
         self._mission_mode_request_started = 0.0
         self._mission_mode_last_request = 0.0
         self._mission_start_sent = False
+        self._mission_pull_pending = False
+        self._mission_pull_attempted = False
         self._land_confirm_sent = False
         self._gripper_close_confirm_sent = False
         self._waiting_for_landing_phase = None
@@ -438,22 +444,32 @@ class PhaseOrchestrator(Node):
 
     def _start_uploaded_mission(self, phase_id, phase):
         if self._uploaded_mission_last_wp < 0:
-            if self._pending_confirmation is not None:
-                self._publish(
-                    "awaiting_confirmation",
-                    1.0,
-                    "업로드된 일반 Waypoint 미션이 없습니다. 미션 업로드 후 OK를 다시 누르세요.",
-                    phase=phase_id,
-                    prompt=self._pending_confirmation,
-                )
-            else:
+            # WaypointList is not latched. If the orchestrator starts after
+            # QGC uploaded the mission, request the list explicitly instead of
+            # mistaking the missing cache for an empty vehicle mission.
+            if not self._mission_pull_pending and not self._mission_pull_attempted and self.mission_pull_cli.service_is_ready():
+                self._mission_pull_attempted = True
+                self._mission_pull_pending = True
+                future = self.mission_pull_cli.call_async(WaypointPull.Request())
+
+                def _mission_pull_done(_future):
+                    self._mission_pull_pending = False
+                    if self._running == phase_id:
+                        self._start_uploaded_mission(phase_id, phase)
+
+                future.add_done_callback(_mission_pull_done)
+                self._publish("running", 0.0,
+                              "기체 미션 목록 확인 중 — 잠시 기다려 주세요",
+                              phase=phase_id)
+            elif self._mission_pull_attempted:
                 self._running = None
-                self._publish(
-                    "failed",
-                    -1,
-                    "업로드된 일반 Waypoint 미션이 없습니다. 미션 업로드 후 Phase를 다시 실행하세요.",
-                    phase=phase_id,
-                )
+                self._publish("failed", -1,
+                              "기체 미션 목록을 받지 못했습니다. 미션 업로드 상태와 MAVROS 연결을 확인하세요.",
+                              phase=phase_id)
+            else:
+                self._publish("running", 0.0,
+                              "기체 미션 목록 수신 대기 중",
+                              phase=phase_id)
             return False
 
         if not self.set_mode_cli.service_is_ready():
@@ -483,6 +499,8 @@ class PhaseOrchestrator(Node):
         self._mission_mode_request_started = now
         self._mission_mode_last_request = 0.0
         self._mission_start_sent = False
+        self._mission_pull_pending = False
+        self._mission_pull_attempted = False
         self._last_wp = -1
 
         self._request_mission_mode()
@@ -601,18 +619,13 @@ class PhaseOrchestrator(Node):
                 self._publish("running", self._progress(),
                               "Position 모드 전환 확인 중", phase=phase_id)
                 return
-            elapsed = now - self._manual_land_started
-            if elapsed < POSITION_HOVER_SEC:
-                self._publish("running", self._progress(),
-                              f"Position 호버링 중 ({POSITION_HOVER_SEC - elapsed:.1f}초)",
-                              phase=phase_id)
-                return
-            self._manual_land_stage = "land"
-            self._land_mode_request_started = now
-            self._land_mode_last_request = 0.0
-            self._request_land_mode()
-            self._publish("running", self._progress(),
-                          "AUTO.LAND 전환 요청", phase=phase_id)
+            # Position is a deliberate operator handoff. Do not land
+            # automatically after the mode change; ask for explicit approval.
+            self._manual_land_stage = "awaiting_land"
+            self._pending_confirmation = "land"
+            self._publish("awaiting_confirmation", self._progress(),
+                          "Position 모드 전환 완료 — Land하시겠습니까?",
+                          phase=phase_id, prompt="land")
             return
         if self._mode == PX4_LAND_MODE and self._landed_state == 1:
             phase = self._phases.get(phase_id)
@@ -1072,11 +1085,14 @@ class PhaseOrchestrator(Node):
             return
 
         self._done.discard(phase_id)
-        if self._status.get("phase") == phase_id and self._status.get("state") in ("stopped", "failed", "done"):
-            self._publish("idle", -1, f"Phase {phase_id} reset 완료", phase=-1)
-        else:
-            self._status["done"] = sorted(self._done)
-            self._republish()
+        # Always publish a fresh idle snapshot after a reset.  Previously this
+        # was conditional on the status still referring to the phase being
+        # reset; if a completion/stop message had already transitioned the
+        # active phase to -1, the updated done list could be republished only
+        # indirectly and the GCS could keep showing the green check mark.
+        # Publishing idle explicitly clears both the active phase and the
+        # completion marker in one atomic status update.
+        self._publish("idle", -1, f"Phase {phase_id} reset 완료", phase=-1)
 
     def _on_run_phase(self, msg):
         try:
@@ -1346,23 +1362,49 @@ class PhaseOrchestrator(Node):
 
     def _on_phase_response(self, msg):
         response = msg.data.strip().lower()
+
+        # Pulse is an independent Gripper Close control. It uses the same
+        # confirmation topic as the former Phase 3 button, but is accepted
+        # while the standalone gripper_close.py action is running.
+        if (
+            response == "ok"
+            and self._gripper_proc is not None
+            and self._gripper_proc.poll() is None
+            and self._gripper_state == "close"
+        ):
+            self._publish_gripper_close_confirm(True)
+            self._action_msg = "Gripper Close 펄스 조임 요청 전송됨"
+            self.get_logger().info(self._action_msg)
+            self._republish()
+            return
+
         phase_id = self._running
         prompt = self._pending_confirmation
 
         phase = self._phases.get(phase_id) if phase_id is not None else None
         if (
-            response == "ok"
-            and phase_id == 3
+            response == "position"
+            and phase_id in (2, 4)
             and phase is not None
-            and getattr(phase, "manual_gripper_close", False)
+            and getattr(phase, "manual_land", False)
             and self._status["state"] == "running"
+            and self._manual_land_phase is None
         ):
-            self._gripper_close_confirm_sent = True
-            self._publish_gripper_close_confirm(True)
-            self._publish(
-                "running", self._progress(),
-                "Gripper Close 펄스 조임 요청 전송됨", phase=phase_id,
-            )
+            self._start_manual_land(phase_id)
+            return
+        if (
+            response == "ok"
+            and phase_id in (2, 4)
+            and self._manual_land_phase == phase_id
+            and self._manual_land_stage == "awaiting_land"
+        ):
+            self._pending_confirmation = None
+            self._manual_land_stage = "land"
+            self._land_mode_request_started = time.monotonic()
+            self._land_mode_last_request = 0.0
+            self._request_land_mode()
+            self._publish("running", self._progress(),
+                          "AUTO.LAND 전환 요청", phase=phase_id)
             return
         if (
             response == "ok"

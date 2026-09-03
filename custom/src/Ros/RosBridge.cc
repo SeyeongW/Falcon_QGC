@@ -289,6 +289,7 @@ void RosBridge::respondPhase(const QString &response)
 {
     const QString normalizedResponse = response.trimmed().toLower();
     if (normalizedResponse != QStringLiteral("ok") && normalizedResponse != QStringLiteral("no")
+        && normalizedResponse != QStringLiteral("position")
         && normalizedResponse != QStringLiteral("again")) {
         qCWarning(RosBridgeLog) << "invalid phase response" << response;
         return;
