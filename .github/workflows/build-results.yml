@@ -31,7 +31,7 @@ jobs:
         uses: step-security/harden-runner@v2
         with:
           egress-policy: audit
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             .github/build-config.json
@@ -68,7 +68,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout local actions
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           sparse-checkout: |
             .github/actions/gate-platform-workflows
@@ -186,7 +186,7 @@ jobs:
 
       - name: Restore baseline sizes
         if: steps.pr.outputs.result != '' && steps.builds.outputs.all_complete == 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         continue-on-error: true
         with:
           path: baseline-sizes.json
@@ -194,7 +194,7 @@ jobs:
 
       - name: Restore baseline coverage
         if: steps.pr.outputs.result != '' && steps.builds.outputs.all_complete == 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         continue-on-error: true
         with:
           path: baseline-coverage.xml
@@ -286,7 +286,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout local actions
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           sparse-checkout: |
             .github/actions/gate-platform-workflows
