@@ -97,7 +97,7 @@
             "name": "requireModeChangeConfirmation",
             "shortDesc": "Require confirmation when changing flight modes",
             "type": "bool",
-            "default": true,
+            "default": false,
             "label": "Require confirmation when changing flight modes"
         }
     ]

@@ -42,15 +42,26 @@ Item {
 
     property double _thermalHeightFactor: 0.85 //-- TODO
 
-        Image {
+        Rectangle {
             id:             noVideo
             anchors.fill:   parent
-            source:         "/res/NoVideoBackground.jpg"
-            fillMode:       Image.PreserveAspectCrop
+            color:          "#071526"
             visible:        !_showStreamLoader && !_showUvcLoader
 
+            Image {
+                anchors.centerIn:             parent
+                anchors.verticalCenterOffset: -ScreenTools.defaultFontPixelHeight * 0.8
+                width:                        parent.width * 0.68
+                height:                       parent.height * 0.62
+                source:                       "qrc:/Custom/res/QGCLogoFull.svg"
+                fillMode:                     Image.PreserveAspectFit
+                mipmap:                       true
+            }
+
             Rectangle {
-                anchors.centerIn:   parent
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom:           parent.bottom
+                anchors.bottomMargin:     ScreenTools.defaultFontPixelHeight * 0.65
                 width:              noVideoLabel.contentWidth + ScreenTools.defaultFontPixelHeight
                 height:             noVideoLabel.contentHeight + ScreenTools.defaultFontPixelHeight
                 radius:             ScreenTools.defaultFontPixelWidth / 2
@@ -64,7 +75,9 @@ Item {
                 font.bold:          true
                 color:              "white"
                 font.pointSize:     useSmallFont ? ScreenTools.smallFontPointSize : ScreenTools.largeFontPointSize
-                anchors.centerIn:   parent
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom:           parent.bottom
+                anchors.bottomMargin:     ScreenTools.defaultFontPixelHeight * 1.15
             }
         }
 

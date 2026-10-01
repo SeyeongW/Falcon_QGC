@@ -42,15 +42,25 @@ class RosBridge : public QObject
     Q_PROPERTY(QString actuatorTopic READ actuatorTopic WRITE setActuatorTopic NOTIFY actuatorTopicChanged)
     Q_PROPERTY(bool haveActuator READ haveActuator NOTIFY servoChannelsChanged)
     Q_PROPERTY(QVariantList servoChannels READ servoChannels NOTIFY servoChannelsChanged)
-    // Mission phase orchestrator (command/run_phase <-> command/status). The
-    // orchestrator runs command/phaseN.py scripts sequentially and streams live
-    // status here so the mission panel can gate buttons and show progress.
+    // Mission phase orchestrator. The onboard MC publishes its dynamic catalog
+    // and live status; QGC sends independent run requests by catalog id.
     Q_PROPERTY(bool phaseLinkOk READ phaseLinkOk NOTIFY phaseStatusChanged)
+    Q_PROPERTY(QVariantList phaseCatalog READ phaseCatalog NOTIFY phaseCatalogChanged)
     Q_PROPERTY(int phase READ phase NOTIFY phaseStatusChanged)
     Q_PROPERTY(QString phaseState READ phaseState NOTIFY phaseStatusChanged)
     Q_PROPERTY(QString phaseMsg READ phaseMsg NOTIFY phaseStatusChanged)
+    Q_PROPERTY(QString phasePrompt READ phasePrompt NOTIFY phaseStatusChanged)
     Q_PROPERTY(double phaseProgress READ phaseProgress NOTIFY phaseStatusChanged)
     Q_PROPERTY(QVariantList phaseDone READ phaseDone NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool cameraAvailable READ cameraAvailable NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool cameraRunning READ cameraRunning NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool gripperOpenAvailable READ gripperOpenAvailable NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool gripperCloseAvailable READ gripperCloseAvailable NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool gripperBusy READ gripperBusy NOTIFY phaseStatusChanged)
+    Q_PROPERTY(QString gripperState READ gripperState NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool failsafeAvailable READ failsafeAvailable NOTIFY phaseStatusChanged)
+    Q_PROPERTY(bool failsafeRunning READ failsafeRunning NOTIFY phaseStatusChanged)
+    Q_PROPERTY(QString actionMsg READ actionMsg NOTIFY phaseStatusChanged)
 
 public:
     explicit RosBridge(QObject *parent = nullptr);
@@ -67,11 +77,22 @@ public:
     bool haveActuator() const { return _haveActuator; }
     QVariantList servoChannels() const { return _servoChannels; }
     bool phaseLinkOk() const { return _phaseLinkOk; }
+    QVariantList phaseCatalog() const { return _phaseCatalog; }
     int phase() const { return _phase; }
     QString phaseState() const { return _phaseState; }
     QString phaseMsg() const { return _phaseMsg; }
+    QString phasePrompt() const { return _phasePrompt; }
     double phaseProgress() const { return _phaseProgress; }
     QVariantList phaseDone() const { return _phaseDone; }
+    bool cameraAvailable() const { return _cameraAvailable; }
+    bool cameraRunning() const { return _cameraRunning; }
+    bool gripperOpenAvailable() const { return _gripperOpenAvailable; }
+    bool gripperCloseAvailable() const { return _gripperCloseAvailable; }
+    bool gripperBusy() const { return _gripperBusy; }
+    QString gripperState() const { return _gripperState; }
+    bool failsafeAvailable() const { return _failsafeAvailable; }
+    bool failsafeRunning() const { return _failsafeRunning; }
+    QString actionMsg() const { return _actionMsg; }
 
     /// Convert a raw sensor_msgs/Image to QImage. Supports rgb8/bgr8/rgba8/
     /// bgra8/mono8/mono16; returns a null QImage for unsupported encodings.
@@ -87,12 +108,22 @@ public slots:
     void setActuatorTopic(const QString &topic);
     /// Ask the orchestrator to run mission phase `n` (publishes command/run_phase).
     Q_INVOKABLE void runPhase(int n);
+    /// Reset a completed or stopped phase to its initial idle state.
+    Q_INVOKABLE void resetPhase(int n);
+    /// Reply to the active phase prompt ("ok", "no", or legacy "again").
+    Q_INVOKABLE void respondPhase(const QString &response);
+    /// Start or stop the onboard camera process.
+    Q_INVOKABLE void setCameraEnabled(bool enabled);
+    /// Run or stop an onboard gripper action ("open", "close", or "stop").
+    Q_INVOKABLE void runGripper(const QString &action);
+    /// Run command/failsafe.py while Phase 2 or Phase 4 is active.
+    Q_INVOKABLE void runFailsafe();
     /// Take control back from the orchestrator: publishes command/abort so it
     /// terminates the running phase script and hands the vehicle to the GCS
     /// (the orchestrator switches PX4 to HOLD / hover-in-place).
     Q_INVOKABLE void abortMission();
-    /// Re-create the command/status subscription to force fresh discovery of the
-    /// orchestrator (used by the panel's "retry" button after a link timeout).
+    /// Re-create the command/status and command/catalog subscriptions to force
+    /// fresh discovery of the onboard orchestrator.
     Q_INVOKABLE void retryPhaseLink();
 
 signals:
@@ -105,6 +136,8 @@ signals:
     void servoChannelsChanged();
     /// Emitted when a command/status message arrives or the link goes stale.
     void phaseStatusChanged();
+    /// Emitted when the onboard MC publishes a changed command/catalog.
+    void phaseCatalogChanged();
     /// Emitted (on the GUI thread) each time a frame is decoded.
     void frameReceived(const QImage &image);
 
@@ -114,6 +147,8 @@ private:
     void _onImage(const sensor_msgs::msg::Image::ConstSharedPtr &msg);
     void _onCompressedImage(const sensor_msgs::msg::CompressedImage::ConstSharedPtr &msg);
     void _onActuator(const mavros_msgs::msg::RCOut::ConstSharedPtr &msg);
+    void _subscribePhaseTopics();
+    void _onPhaseCatalog(const std_msgs::msg::String::ConstSharedPtr &msg);
     void _onPhaseStatus(const std_msgs::msg::String::ConstSharedPtr &msg);
 
     bool _rosOk = false;
@@ -123,9 +158,13 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr _imageSub;
     rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr _compressedSub;
     rclcpp::Subscription<mavros_msgs::msg::RCOut>::SharedPtr _actuatorSub;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _phaseCatalogSub;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _phaseStatusSub;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr _runPhasePub;
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr _resetPhasePub;
     rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr _abortPub;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr _phaseResponsePub;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr _actionPub;
 
     QTimer _spinTimer;                          ///< drives rclcpp::spin_some
     QTimer _fpsTimer;                            ///< 1 Hz frame-rate accounting
@@ -141,12 +180,24 @@ private:
     bool _haveActuator = false;
     qint64 _lastActuatorMs = 0;         ///< monotonic ms of last actuator msg
 
-    // Mission phase orchestrator status (parsed from command/status JSON).
+    // Mission phase catalog/status parsed from the onboard orchestrator JSON.
     bool _phaseLinkOk = false;          ///< orchestrator seen recently
+    QVariantList _phaseCatalog;         ///< dynamic id/title/desc entries from MC
     int _phase = -1;
     QString _phaseState = QStringLiteral("idle");
     QString _phaseMsg;
+    QString _phasePrompt;
     double _phaseProgress = -1.0;
     QVariantList _phaseDone;            ///< completed phase ids
     qint64 _lastPhaseMs = 0;            ///< ms of last command/status msg
+
+    bool _cameraAvailable = false;
+    bool _cameraRunning = false;
+    bool _gripperOpenAvailable = false;
+    bool _gripperCloseAvailable = false;
+    bool _gripperBusy = false;
+    QString _gripperState = QStringLiteral("unknown");
+    bool _failsafeAvailable = false;
+    bool _failsafeRunning = false;
+    QString _actionMsg;
 };

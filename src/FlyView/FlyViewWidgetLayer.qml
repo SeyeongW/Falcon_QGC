@@ -13,6 +13,7 @@ import QGroundControl.Controls
 import QGroundControl.FlyView
 import QGroundControl.FlightMap
 import QGroundControl.Viewer3D
+import Custom.Widgets
 
 // This is the ui overlay layer for the widgets/tools for Fly View
 Item {
@@ -21,6 +22,7 @@ Item {
     property var    parentToolInsets
     property var    totalToolInsets:        _totalToolInsets
     property var    mapControl
+    property Item   telemetryContainer
 
     property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
     property var    _planMasterController:  globals.planMasterControllerFlyView
@@ -35,6 +37,38 @@ Item {
     property real   _layoutMargin:          ScreenTools.defaultFontPixelWidth * 0.75
     property bool   _layoutSpacing:         ScreenTools.defaultFontPixelWidth
     property bool   _showSingleVehicleUI:   true
+    property var    _primaryBattery:        _activeVehicle && _activeVehicle.batteries.count > 0
+                                                ? _activeVehicle.batteries.get(0)
+                                                : null
+
+    function _telemetryText(fact, decimalPlaces) {
+        if (!fact || !isFinite(Number(fact.value))) {
+            return qsTr("–")
+        }
+
+        const units = fact.units ? " " + fact.units : ""
+        return Number(fact.value).toFixed(decimalPlaces) + units
+    }
+
+    function _factTelemetryText(fact, showUnits) {
+        if (!fact) {
+            return qsTr("–")
+        }
+
+        return fact.enumOrValueString + (showUnits && fact.units ? " " + fact.units : "")
+    }
+
+    function _descentRateText() {
+        if (!_activeVehicle || !isFinite(Number(_activeVehicle.climbRate.value))) {
+            return qsTr("–")
+        }
+
+        const descentRate = Math.max(0, -Number(_activeVehicle.climbRate.value))
+        const units = _activeVehicle.climbRate.units
+                ? " " + _activeVehicle.climbRate.units
+                : ""
+        return descentRate.toFixed(1) + units
+    }
 
     QGCToolInsets {
         id:                     _totalToolInsets
@@ -73,6 +107,79 @@ Item {
         property real topEdgeRightInset:    childrenRect.height + _layoutMargin
         property real rightEdgeTopInset:    width + _layoutMargin
         property real rightEdgeCenterInset: rightEdgeTopInset
+    }
+
+    Item {
+        id:                     telemetryPanel
+        parent:                 _root.telemetryContainer ? _root.telemetryContainer : _root
+        anchors.fill:           parent
+        visible:                _root.visible && _activeVehicle
+        z:                      QGroundControl.zOrderWidgets
+
+        readonly property real _contentScale: Math.max(
+                                                  0.9,
+                                                  Math.min(
+                                                      1.5,
+                                                      height / (ScreenTools.defaultFontPixelHeight * 6)
+                                                  )
+                                              )
+
+        GridLayout {
+            anchors.fill:        parent
+            anchors.leftMargin:  _toolsMargin
+            anchors.rightMargin: _toolsMargin
+            anchors.topMargin:   ScreenTools.defaultFontPixelHeight * 0.35
+            anchors.bottomMargin: anchors.topMargin
+            columns:             5
+            columnSpacing:       ScreenTools.defaultFontPixelWidth * 0.8
+            rowSpacing:          ScreenTools.defaultFontPixelHeight * 0.2
+
+            Repeater {
+                model: [
+                    { label: qsTr("CURRENT"), value: _telemetryText(_primaryBattery ? _primaryBattery.current : null, 1) },
+                    { label: qsTr("ROLL"),    value: _telemetryText(_activeVehicle ? _activeVehicle.roll : null, 1) },
+                    { label: qsTr("PITCH"),   value: _telemetryText(_activeVehicle ? _activeVehicle.pitch : null, 1) },
+                    { label: qsTr("DESCENT"), value: _descentRateText() },
+                    { label: qsTr("ALT"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.altitudeRelative : null, true) },
+                    { label: qsTr("V/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.climbRate : null, true) },
+                    { label: qsTr("G/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.groundSpeed : null, true) },
+                    { label: qsTr("A/S"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.airSpeed : null, true) },
+                    { label: qsTr("THR"),     value: _factTelemetryText(_activeVehicle ? _activeVehicle.throttlePct : null, true) },
+                    { label: qsTr("TIME"),    value: _factTelemetryText(_activeVehicle ? _activeVehicle.flightTime : null, false) }
+                ]
+
+                ColumnLayout {
+                    required property var modelData
+
+                    Layout.fillWidth:  true
+                    Layout.fillHeight: true
+                    spacing:           0
+
+                    QGCLabel {
+                        Layout.fillWidth:      true
+                        text:                  modelData.label
+                        color:                 "#5796B4"
+                        horizontalAlignment:   Text.AlignHCenter
+                        font.bold:             true
+                        font.pixelSize:        ScreenTools.defaultFontPixelHeight
+                                               * 0.70
+                                               * telemetryPanel._contentScale
+                    }
+
+                    QGCLabel {
+                        Layout.fillWidth:      true
+                        text:                  modelData.value
+                        color:                 "white"
+                        elide:                 Text.ElideRight
+                        horizontalAlignment:   Text.AlignHCenter
+                        font.bold:             true
+                        font.pixelSize:        ScreenTools.defaultFontPixelHeight
+                                               * 0.90
+                                               * telemetryPanel._contentScale
+                    }
+                }
+            }
+        }
     }
 
     FlyViewBottomRightRowLayout {

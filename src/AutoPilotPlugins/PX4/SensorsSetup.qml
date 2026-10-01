@@ -20,6 +20,15 @@ Item {
     property bool   showSetOrientations:            true    ///< true: Show this calibration button
     property bool   showNextButton:                 false   ///< true: Show Next button which will signal nextButtonClicked
 
+    // sectionNameFilter comes from SensorsComponent::sections(), so these values must use
+    // the same translation context instead of the SensorsSetup QML context.
+    readonly property string _compassSectionName:       qsTranslate("SensorsComponent", "Compass")
+    readonly property string _gyroscopeSectionName:     qsTranslate("SensorsComponent", "Gyroscope")
+    readonly property string _accelerometerSectionName: qsTranslate("SensorsComponent", "Accelerometer")
+    readonly property string _levelHorizonSectionName:  qsTranslate("SensorsComponent", "Level Horizon")
+    readonly property string _airspeedSectionName:      qsTranslate("SensorsComponent", "Airspeed")
+    readonly property string _orientationsSectionName:  qsTranslate("SensorsComponent", "Orientations")
+
     signal nextButtonClicked
 
     // Help text which is shown both in the status text area prior to pressing a cal button and in the
@@ -125,6 +134,14 @@ Item {
         onMagCalComplete: {
             setOrientationsDialogShowBoardOrientation   = false
             setOrientationsDialogFactory.open({ title: qsTr("Compass Calibration Complete"), showRebootVehicleButton: true })
+        }
+
+        // All non-compass calibration paths use the same completion/reboot guidance
+        // as compass calibration. The reboot action remains optional so the operator
+        // can acknowledge the result first and reboot when ready.
+        onCalibrationComplete: {
+            setOrientationsDialogShowBoardOrientation = false
+            setOrientationsDialogFactory.open({ title: qsTr("Calibration Complete"), showRebootVehicleButton: true })
         }
 
         onWaitingForCancelChanged: {
@@ -321,12 +338,12 @@ Item {
     onSectionNameFilterChanged: controller.resetSidesToIdle()
 
     function sectionVisible(name) {
-        if (name === qsTr("Compass")) return !_allMagsDisabled && QGroundControl.corePlugin.options.showSensorCalibrationCompass && showSensorCalibrationCompass
-        if (name === qsTr("Gyroscope")) return QGroundControl.corePlugin.options.showSensorCalibrationGyro && showSensorCalibrationGyro
-        if (name === qsTr("Accelerometer")) return QGroundControl.corePlugin.options.showSensorCalibrationAccel && showSensorCalibrationAccel
-        if (name === qsTr("Level Horizon")) return QGroundControl.corePlugin.options.showSensorCalibrationLevel && showSensorCalibrationLevel
-        if (name === qsTr("Airspeed")) return vehicleComponent.airspeedCalSupported && QGroundControl.corePlugin.options.showSensorCalibrationAirspeed && showSensorCalibrationAirspeed
-        if (name === qsTr("Orientations")) return orientationsButtonVisible()
+        if (name === _compassSectionName) return !_allMagsDisabled && QGroundControl.corePlugin.options.showSensorCalibrationCompass && showSensorCalibrationCompass
+        if (name === _gyroscopeSectionName) return QGroundControl.corePlugin.options.showSensorCalibrationGyro && showSensorCalibrationGyro
+        if (name === _accelerometerSectionName) return QGroundControl.corePlugin.options.showSensorCalibrationAccel && showSensorCalibrationAccel
+        if (name === _levelHorizonSectionName) return QGroundControl.corePlugin.options.showSensorCalibrationLevel && showSensorCalibrationLevel
+        if (name === _airspeedSectionName) return vehicleComponent.airspeedCalSupported && QGroundControl.corePlugin.options.showSensorCalibrationAirspeed && showSensorCalibrationAirspeed
+        if (name === _orientationsSectionName) return orientationsButtonVisible()
         return true
     }
 
@@ -342,16 +359,16 @@ Item {
     }
 
     property bool _showOrientationPreview: !controller.calibrationActive &&
-        (sectionNameFilter === qsTr("Accelerometer") || sectionNameFilter === qsTr("Compass") || sectionNameFilter === qsTr("Gyroscope"))
+        (sectionNameFilter === _accelerometerSectionName || sectionNameFilter === _compassSectionName || sectionNameFilter === _gyroscopeSectionName)
 
     property bool _showAllSidesPreview: _showOrientationPreview &&
-        (sectionNameFilter === qsTr("Accelerometer") || sectionNameFilter === qsTr("Compass"))
+        (sectionNameFilter === _accelerometerSectionName || sectionNameFilter === _compassSectionName)
 
     property bool _showDownOnlyPreview: _showOrientationPreview &&
-        sectionNameFilter === qsTr("Gyroscope")
+        sectionNameFilter === _gyroscopeSectionName
 
     property bool _showStatusPreview: !controller.calibrationActive &&
-        (sectionNameFilter === qsTr("Level Horizon") || sectionNameFilter === qsTr("Airspeed"))
+        (sectionNameFilter === _levelHorizonSectionName || sectionNameFilter === _airspeedSectionName)
 
     ColumnLayout {
         anchors.fill: parent
@@ -367,14 +384,14 @@ Item {
                 objectName: "sensorsSetup_calibrateCompass"
                 Layout.fillWidth: true
                 text:       qsTr("Calibrate Compass")
-                visible:    sectionNameFilter === "" || sectionNameFilter === qsTr("Compass")
+                visible:    _root.sectionNameFilter === "" || _root.sectionNameFilter === _root._compassSectionName
                 onClicked:  _startCalibration("compass", compassHelp, qsTr("Calibrate Compass"))
             }
 
             QGCButton {
                 Layout.fillWidth: true
                 text:       qsTr("Calibrate Gyroscope")
-                visible:    sectionNameFilter === "" || sectionNameFilter === qsTr("Gyroscope")
+                visible:    _root.sectionNameFilter === "" || _root.sectionNameFilter === _root._gyroscopeSectionName
                 onClicked:  _startCalibration("gyro", gyroHelp, qsTr("Calibrate Gyro"))
             }
 
@@ -382,7 +399,7 @@ Item {
                 objectName: "sensorsSetup_calibrateAccel"
                 Layout.fillWidth: true
                 text:       qsTr("Calibrate Accelerometer")
-                visible:    sectionNameFilter === "" || sectionNameFilter === qsTr("Accelerometer")
+                visible:    _root.sectionNameFilter === "" || _root.sectionNameFilter === _root._accelerometerSectionName
                 onClicked:  _startCalibration("accel", accelHelp, qsTr("Calibrate Accelerometer"))
             }
 
@@ -390,21 +407,21 @@ Item {
                 Layout.fillWidth: true
                 text:       qsTr("Level Horizon")
                 enabled:    cal_acc0_id.value !== 0 && cal_gyro0_id.value !== 0
-                visible:    sectionNameFilter === "" || sectionNameFilter === qsTr("Level Horizon")
+                visible:    _root.sectionNameFilter === "" || _root.sectionNameFilter === _root._levelHorizonSectionName
                 onClicked:  _startCalibration("level", levelHelp, qsTr("Level Horizon"))
             }
 
             QGCButton {
                 Layout.fillWidth: true
                 text:       qsTr("Calibrate Airspeed")
-                visible:    sectionNameFilter === "" || sectionNameFilter === qsTr("Airspeed")
+                visible:    _root.sectionNameFilter === "" || _root.sectionNameFilter === _root._airspeedSectionName
                 onClicked:  _startCalibration("airspeed", airspeedHelp, qsTr("Calibrate Airspeed"))
             }
 
             QGCButton {
                 Layout.fillWidth: true
                 text:       qsTr("Set Orientations")
-                visible:    sectionNameFilter === "" || sectionNameFilter === qsTr("Orientations")
+                visible:    _root.sectionNameFilter === "" || _root.sectionNameFilter === _root._orientationsSectionName
                 onClicked: {
                     setOrientationsDialogShowBoardOrientation = true
                     setOrientationsDialogFactory.open({ title: qsTr("Set Orientations"), showRebootVehicleButton: false })
@@ -414,7 +431,7 @@ Item {
             QGCButton {
                 Layout.fillWidth: true
                 text:       qsTr("Factory Reset")
-                visible:    sectionNameFilter === "" || sectionNameFilter === qsTr("Orientations")
+                visible:    _root.sectionNameFilter === "" || _root.sectionNameFilter === _root._orientationsSectionName
                 onClicked:  controller.resetFactoryParameters()
             }
 

@@ -180,3 +180,5 @@ Qt*-linux*.tar.*
 .direnv/
 .tool-versions
 .python-version
+custom/res/3D/Falcon/falcon_aircraft.glb
+custom/res/3D/Falcon/generated/meshes/aircraft_Body_mesh.mesh

@@ -4,6 +4,7 @@
 # ============================================================================
 
 add_subdirectory(GeoTag)
+add_subdirectory(CompetitionData)
 add_subdirectory(LogViewer)
 add_subdirectory(MAVLinkConsole)
 add_subdirectory(MAVLinkInspector)
@@ -28,6 +29,7 @@ qt_add_qml_module(AnalyzeViewModule
     QML_FILES
         AnalyzePage.qml
         AnalyzeView.qml
+        CompetitionData/CompetitionDataPage.qml
         MAVLinkConsole/MAVLinkConsolePage.qml
         MAVLinkInspector/MAVLinkChart.qml
         MAVLinkInspector/MAVLinkMessageButton.qml

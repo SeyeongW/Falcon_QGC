@@ -526,7 +526,7 @@ Rectangle {
                     id:                 parametersButton
                     visible:            QGroundControl.multiVehicleManager.parameterReadyVehicleAvailable &&
                                         !_activeVehicle.usingHighLatencyLink &&
-                                        _corePlugin.showAdvancedUI &&
+                                        (vehicleConfigView._corePlugin.showAdvancedUI || vehicleConfigView._corePlugin.options.alwaysShowParameterEditor) &&
                                         vehicleConfigView._searchQuery.trim() === ""
                     text:               qsTr("Parameters")
                     Layout.fillWidth:   true

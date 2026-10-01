@@ -126,6 +126,8 @@ void SensorsComponentController::_stopCalibration(SensorsComponentController::St
             }
             if (_magCalInProgress) {
                 emit magCalComplete();
+            } else {
+                emit calibrationComplete();
             }
             break;
 

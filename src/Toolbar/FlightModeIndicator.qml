@@ -18,6 +18,17 @@ Item {
     property bool allowEditMode:    true
     property bool editMode:         false
 
+    // PX4 deliberately marks AUTO.LAND as non-settable in its firmware mode
+    // metadata, which caused the selector to omit Land intermittently across
+    // vehicle/plugin initialization paths. Keep the protocol name available
+    // in the selector whenever the connected vehicle is PX4.
+    readonly property var _displayFlightModes: {
+        const modes = activeVehicle ? activeVehicle.flightModes.slice() : []
+        if (activeVehicle && activeVehicle.px4Firmware && modes.indexOf("Land") < 0)
+            modes.push("Land")
+        return modes
+    }
+
     property bool _isVTOL:          activeVehicle ? activeVehicle.vtol : false
     property bool _vtolInFWDFlight: activeVehicle ? activeVehicle.vtolInFwdFlight : false
     property var  _vehicleInAir:    activeVehicle ? activeVehicle.flying || activeVehicle.landing : false
@@ -41,7 +52,9 @@ Item {
 
         QGCLabel {
             id:                 flightModeLabel
-            text:               activeVehicle ? activeVehicle.flightMode : qsTr("N/A", "No data to display")
+            text:               globals.flightModeDisplayOverride.length > 0
+                                    ? globals.flightModeDisplayOverride
+                                    : activeVehicle ? activeVehicle.flightMode : qsTr("N/A", "No data to display")
             color:              qgcPal.text
             font.pointSize:     fontPointSize
 
@@ -147,7 +160,7 @@ Item {
 
             Repeater {
                 id:     modeRepeater
-                model:  activeVehicle ? activeVehicle.flightModes : []
+                model:  control._displayFlightModes
 
                 RowLayout {
                     spacing: ScreenTools.defaultFontPixelWidth

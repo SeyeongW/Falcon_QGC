@@ -164,8 +164,15 @@ message(STATUS "QGC: Building AppImage package...")
 set(ENV{ARCH} ${CMAKE_SYSTEM_PROCESSOR})
 set(ENV{VERSION} ${CMAKE_PROJECT_VERSION})
 
+set(_appimagetool_args --no-appstream)
+set(_appimage_runtime_path
+    "${QGC_APPIMAGE_BUILD_DIR}/tools/runtime-${CMAKE_SYSTEM_PROCESSOR}")
+if(EXISTS "${_appimage_runtime_path}")
+    list(APPEND _appimagetool_args --runtime-file "${_appimage_runtime_path}")
+endif()
+
 execute_process(
-    COMMAND "${APPIMAGETOOL_PATH}" "${APPDIR_PATH}" "${APPIMAGE_PATH}"
+    COMMAND "${APPIMAGETOOL_PATH}" ${_appimagetool_args} "${APPDIR_PATH}" "${APPIMAGE_PATH}"
     COMMAND_ECHO STDOUT
     COMMAND_ERROR_IS_FATAL ANY
 )

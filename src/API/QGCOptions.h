@@ -48,6 +48,7 @@ class QGCOptions : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("")
     Q_PROPERTY(bool allowJoystickSelection          READ allowJoystickSelection         NOTIFY allowJoystickSelectionChanged)
+    Q_PROPERTY(bool alwaysShowParameterEditor       READ alwaysShowParameterEditor      CONSTANT)
     Q_PROPERTY(bool checkFirmwareVersion            READ checkFirmwareVersion           CONSTANT)
     Q_PROPERTY(bool combineSettingsAndSetup         READ combineSettingsAndSetup        CONSTANT)
     Q_PROPERTY(bool enableSaveMainWindowPosition    READ enableSaveMainWindowPosition   CONSTANT)
@@ -79,6 +80,9 @@ class QGCOptions : public QObject
 public:
     explicit QGCOptions(QObject *parent = nullptr);
     ~QGCOptions();
+
+    /// @return true: Show the full parameter editor even when Advanced Mode is disabled.
+    virtual bool alwaysShowParameterEditor() const { return false; }
 
     /// Should QGC hide its settings menu and colapse it into one single menu (Settings and Vehicle Setup)?
     /// @return true if QGC should consolidate both menus into one.

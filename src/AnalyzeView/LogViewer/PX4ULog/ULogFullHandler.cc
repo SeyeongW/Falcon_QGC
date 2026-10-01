@@ -45,11 +45,8 @@ QString _px4NavStateName(int state)
     }
 }
 
-bool _isNumericScalarField(const ulog_cpp::Field &field)
+bool _isNumericField(const ulog_cpp::Field &field)
 {
-    if (field.arrayLength() >= 0) {
-        return false; // arrays excluded from plottable fields
-    }
     using BT = ulog_cpp::Field::BasicType;
     switch (field.type().type) {
     case BT::INT8:
@@ -176,13 +173,24 @@ void ULogFullHandler::data(const ulog_cpp::Data &data)
             const QString fieldName = prefix + QString::fromStdString(field->name());
             _fieldSet.insert(fieldName);
 
-            if (!_isNumericScalarField(*field) || timestampSecs < 0.0) {
+            if (!_isNumericField(*field) || timestampSecs < 0.0) {
                 continue;
             }
 
-            const double value = view.at(field).as<double>();
-            _result.fieldSamples[fieldName].append(QPointF(timestampSecs, value));
-            _plottableFieldSet.insert(fieldName);
+            const int arrayLength = field->arrayLength();
+            if (arrayLength >= 0) {
+                for (int index = 0; index < arrayLength; ++index) {
+                    const QString elementName = QStringLiteral("%1[%2]").arg(fieldName).arg(index);
+                    const double value = view.at(field)[index].as<double>();
+                    _fieldSet.insert(elementName);
+                    _result.fieldSamples[elementName].append(QPointF(timestampSecs, value));
+                    _plottableFieldSet.insert(elementName);
+                }
+            } else {
+                const double value = view.at(field).as<double>();
+                _result.fieldSamples[fieldName].append(QPointF(timestampSecs, value));
+                _plottableFieldSet.insert(fieldName);
+            }
         }
 
         _result.sampleCount++;

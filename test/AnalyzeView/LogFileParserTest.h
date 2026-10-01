@@ -8,6 +8,7 @@ class LogFileParserTest : public UnitTest
 
 private slots:
     void _parseULogNumericTopicTest();
+    void _parseULogNumericArrayTest();
     void _parseULogParameterTest();
     void _parseULogWarningEventTest();
     void _parseULogModeSegmentsTest();

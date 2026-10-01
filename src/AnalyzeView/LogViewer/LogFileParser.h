@@ -100,6 +100,9 @@ public:
     /// Returns an empty map if GPS data is not available.
     Q_INVOKABLE QVariantMap gpsCoordAt(double timestampSeconds) const;
 
+    /// C++-only access to the full-resolution samples used by analysis exporters.
+    const QVector<QPointF> &fieldSamplesVector(const QString &fieldName) const;
+
 signals:
     void parseCompleteChanged();
     void parseErrorChanged();
