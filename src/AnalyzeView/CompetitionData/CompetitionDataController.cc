@@ -92,11 +92,17 @@ bool CompetitionDataController::exportAscii(const QString &filePath)
         return false;
     }
 
+    const bool csvOutput = localPath.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive);
+    const QChar separator = csvOutput ? QLatin1Char(',') : QLatin1Char('\t');
+
     QTextStream stream(&outputFile);
     stream.setEncoding(QStringConverter::Latin1);
-    stream << "AUTO_MANUAL\tEVENT\tGPST\tLATITUDE\tLONGITUDE\tALTITUDE\tAX\tAY\tAZ\tROLL\tPITCH\tYAW\n";
+    stream << "AUTO_MANUAL" << separator << "EVENT" << separator << "GPST" << separator
+           << "LATITUDE" << separator << "LONGITUDE" << separator << "ALTITUDE" << separator
+           << "AX" << separator << "AY" << separator << "AZ" << separator << "ROLL" << separator
+           << "PITCH" << separator << "YAW\n";
     for (const ExportRow &row : rows) {
-        stream << _rowText(row) << '\n';
+        stream << _rowText(row, separator) << '\n';
     }
 
     if (!outputFile.commit()) {
@@ -798,9 +804,9 @@ QString CompetitionDataController::_localPath(const QString &filePath) const
     return url.isLocalFile() ? url.toLocalFile() : filePath;
 }
 
-QString CompetitionDataController::_rowText(const ExportRow &row) const
+QString CompetitionDataController::_rowText(const ExportRow &row, QChar separator) const
 {
-    return QStringLiteral("%1\t%2\t%3\t%4\t%5\t%6\t%7\t%8\t%9\t%10\t%11\t%12")
+    return QStringLiteral("%1%13%2%13%3%13%4%13%5%13%6%13%7%13%8%13%9%13%10%13%11%13%12")
         .arg(row.automatic)
         .arg(row.waypoint)
         .arg(row.gpst, 0, 'f', 3)
@@ -812,7 +818,8 @@ QString CompetitionDataController::_rowText(const ExportRow &row) const
         .arg(row.az, 0, 'f', 3)
         .arg(row.roll, 0, 'f', 2)
         .arg(row.pitch, 0, 'f', 2)
-        .arg(row.yaw, 0, 'f', 2);
+        .arg(row.yaw, 0, 'f', 2)
+        .arg(separator);
 }
 
 void CompetitionDataController::_setError(const QString &message)

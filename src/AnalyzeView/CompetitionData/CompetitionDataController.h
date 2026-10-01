@@ -140,7 +140,7 @@ private:
     int _automaticFlag(int navState) const;
     QString _eventLabel(const QString &eventName, int number, double timestamp) const;
     QString _localPath(const QString &filePath) const;
-    QString _rowText(const ExportRow &row) const;
+    QString _rowText(const ExportRow &row, QChar separator) const;
     void _setError(const QString &message);
 
     LogFileParser _parser;

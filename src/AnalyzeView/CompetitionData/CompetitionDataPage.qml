@@ -15,7 +15,7 @@ AnalyzePage {
     readonly property real competitionTableWidth: 1220
 
     pageComponent: pageComponent
-    pageDescription: qsTr("Export a selected ARM-to-DISARM range as the competition 10 Hz, 12-column ASCII format using GPST and MSL altitude.")
+    pageDescription: qsTr("Export a selected ARM-to-DISARM range as the competition 10 Hz, 12-column ASCII or CSV format using GPST and MSL altitude.")
     allowPopout: true
 
     Component {
@@ -43,7 +43,7 @@ AnalyzePage {
                 }
 
                 QGCButton {
-                    text: qsTr("Export 10 Hz ASCII")
+                    text: qsTr("Export 10 Hz Data")
                     enabled: controller.ready && !controller.parsing
                     onClicked: {
                         saveDialog.folder = controller.suggestedOutputPath.replace(/[/\\][^/\\]*$/, "")
@@ -290,8 +290,8 @@ AnalyzePage {
                 id: saveDialog
                 title: qsTr("Save Competition Data")
                 folder: QGroundControl.settingsManager.appSettings.logSavePath
-                nameFilters: [qsTr("ASCII Text Files (*.txt *.asc)")]
-                defaultSuffix: "txt"
+                nameFilters: [qsTr("Tab-separated Text Files (*.txt *.asc)"),
+                              qsTr("Comma-separated CSV Files (*.csv)")]
                 onAcceptedForSave: (file) => controller.exportAscii(file)
             }
 
